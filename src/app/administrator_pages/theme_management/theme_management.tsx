@@ -26,7 +26,12 @@ export default function ThemeManagement() {
   const [searchText, setSearchText] = useState("");
   const [showAddModal, setShowAddModal] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
+  const [showDetailsModal, setShowDetailsModal] = useState(false);
+  const [showImageZoom, setShowImageZoom] = useState(false);
+  const [zoomedImageUri, setZoomedImageUri] = useState("");
+  const [imageZoomSource, setImageZoomSource] = useState<"details" | "edit" | "add">("details");
   const [editingTheme, setEditingTheme] = useState<any>(null);
+  const [viewingTheme, setViewingTheme] = useState<any>(null);
 
   // Add Theme Modal State
   const [themeName, setThemeName] = useState("");
@@ -256,6 +261,22 @@ export default function ThemeManagement() {
     setEditColors(themeItem.colors || ["#000000"]);
     setEditThumbnailUri(themeItem.thumbnail || "");
     setShowEditModal(true);
+  };
+
+  const handleViewTheme = (themeItem: any) => {
+    setViewingTheme(themeItem);
+    setShowDetailsModal(true);
+  };
+
+  const handleOpenImageZoom = (imageUri: string, source: "details" | "edit" | "add") => {
+    setZoomedImageUri(imageUri);
+    setImageZoomSource(source);
+    setShowImageZoom(true);
+  };
+
+  const handleCloseImageZoom = () => {
+    setShowImageZoom(false);
+    setZoomedImageUri("");
   };
 
   const handleSaveEditTheme = async () => {
@@ -500,7 +521,7 @@ export default function ThemeManagement() {
 
                   {/* Actions */}
                   <View style={[styles.actionsColumn, { flex: 0.9 }]}>
-                    <TouchableOpacity style={styles.actionIcon}>
+                    <TouchableOpacity style={styles.actionIcon} onPress={() => handleViewTheme(themeItem)}>
                       <Ionicons name="eye" size={18} color={Palette.blue} />
                     </TouchableOpacity>
                     <TouchableOpacity style={styles.actionIcon} onPress={() => handleEditTheme(themeItem)}>
@@ -636,7 +657,9 @@ export default function ThemeManagement() {
                   <View style={styles.thumbnailSection}>
                     {thumbnailUri ? (
                       <>
-                        <Image source={{ uri: thumbnailUri }} style={styles.thumbnailPreview} />
+                        <TouchableOpacity onPress={() => handleOpenImageZoom(thumbnailUri, "add")}>
+                          <Image source={{ uri: thumbnailUri }} style={styles.thumbnailPreview} />
+                        </TouchableOpacity>
                         <View style={{ flexDirection: "row", gap: 8 }}>
                           <TouchableOpacity
                             style={[styles.changeThumbnailButton, { flex: 1, borderColor: Palette.primary }]}
@@ -794,7 +817,9 @@ export default function ThemeManagement() {
                   <View style={styles.thumbnailSection}>
                     {editThumbnailUri ? (
                       <>
-                        <Image source={{ uri: editThumbnailUri }} style={styles.thumbnailPreview} />
+                        <TouchableOpacity onPress={() => handleOpenImageZoom(editThumbnailUri, "edit")}>
+                          <Image source={{ uri: editThumbnailUri }} style={styles.thumbnailPreview} />
+                        </TouchableOpacity>
                         <View style={{ flexDirection: "row", gap: 8 }}>
                           <TouchableOpacity
                             style={[styles.changeThumbnailButton, { flex: 1, borderColor: Palette.primary }]}
@@ -854,6 +879,125 @@ export default function ThemeManagement() {
               </View>
             </ScrollView>
           </View>
+        </View>
+      </Modal>
+
+      {/* Theme Details Modal */}
+      <Modal visible={showDetailsModal} transparent animationType="fade" onRequestClose={() => setShowDetailsModal(false)}>
+        <View style={styles.modalOverlay}>
+          <View style={[styles.modalContent, { backgroundColor: theme.card }]}>
+            <ScrollView showsVerticalScrollIndicator={false} style={styles.modalScroll}>
+              {/* Header */}
+              <View style={styles.modalHeader}>
+                <View>
+                  <Text style={[styles.modalTitle, { color: theme.text }]}>Theme Details</Text>
+                  <Text style={[styles.modalSubtitle, { color: theme.textSecondary }]}>View theme information</Text>
+                </View>
+                <TouchableOpacity onPress={() => setShowDetailsModal(false)}>
+                  <Ionicons name="close" size={24} color={theme.text} />
+                </TouchableOpacity>
+              </View>
+
+              <View style={styles.modalBody}>
+                {/* Thumbnail */}
+                {viewingTheme?.thumbnail && (
+                  <View style={styles.thumbnailSection}>
+                    <TouchableOpacity onPress={() => handleOpenImageZoom(viewingTheme?.thumbnail, "details")} style={{ width: "100%" }}>
+                      <Image source={{ uri: viewingTheme?.thumbnail }} style={styles.detailsThumbnail} resizeMode="contain" />
+                    </TouchableOpacity>
+                  </View>
+                )}
+
+                {/* Theme Name */}
+                <View style={styles.detailGroup}>
+                  <Text style={[styles.detailLabel, { color: theme.textSecondary }]}>Theme Name</Text>
+                  <Text style={[styles.detailValue, { color: theme.text }]}>{viewingTheme?.name}</Text>
+                </View>
+
+                {/* Description */}
+                {viewingTheme?.description && (
+                  <View style={styles.detailGroup}>
+                    <Text style={[styles.detailLabel, { color: theme.textSecondary }]}>Description</Text>
+                    <Text style={[styles.detailValue, { color: theme.text }]}>{viewingTheme?.description}</Text>
+                  </View>
+                )}
+
+                {/* Status */}
+                <View style={styles.detailGroup}>
+                  <Text style={[styles.detailLabel, { color: theme.textSecondary }]}>Status</Text>
+                  <View style={[styles.statusBadge, { backgroundColor: viewingTheme?.status === "Active" ? "#28a74520" : theme.lightBg, width: "auto" }]}>
+                    <Text style={[styles.statusText, { color: viewingTheme?.status === "Active" ? Palette.green : theme.textSecondary }]}>
+                      {viewingTheme?.status}
+                    </Text>
+                  </View>
+                </View>
+
+                {/* Created Date */}
+                <View style={styles.detailGroup}>
+                  <Text style={[styles.detailLabel, { color: theme.textSecondary }]}>Created Date</Text>
+                  <Text style={[styles.detailValue, { color: theme.text }]}>{viewingTheme?.createdDate}</Text>
+                </View>
+
+                {/* Color Palette */}
+                <View style={styles.detailGroup}>
+                  <Text style={[styles.detailLabel, { color: theme.textSecondary }]}>Color Palette</Text>
+                  <View style={styles.colorPaletteContainer}>
+                    {viewingTheme?.colors?.map((color: string, index: number) => (
+                      <View key={index} style={styles.colorItem}>
+                        <View style={[styles.colorPreview, { backgroundColor: color }]} />
+                        <Text style={[styles.colorLabel, { color: theme.text }]}>
+                          {index === 0 ? "Main" : index === 1 ? "Secondary" : `Accent ${index - 1}`}
+                        </Text>
+                        <Text style={[styles.colorValue, { color: theme.textSecondary }]}>{color}</Text>
+                      </View>
+                    ))}
+                  </View>
+                </View>
+
+                {/* Category and Type */}
+                <View style={{ flexDirection: "row", gap: 12 }}>
+                  <View style={[styles.detailGroup, { flex: 1 }]}>
+                    <Text style={[styles.detailLabel, { color: theme.textSecondary }]}>Category</Text>
+                    <Text style={[styles.detailValue, { color: theme.text }]}>{viewingTheme?.category}</Text>
+                  </View>
+                  <View style={[styles.detailGroup, { flex: 1 }]}>
+                    <Text style={[styles.detailLabel, { color: theme.textSecondary }]}>Type</Text>
+                    <Text style={[styles.detailValue, { color: theme.text }]}>{viewingTheme?.type}</Text>
+                  </View>
+                </View>
+              </View>
+
+              {/* Footer */}
+              <View style={styles.modalFooter}>
+                <TouchableOpacity
+                  style={[styles.saveButton, { backgroundColor: Palette.primary, flex: 1 }]}
+                  onPress={() => {
+                    setShowDetailsModal(false);
+                    handleEditTheme(viewingTheme);
+                  }}
+                >
+                  <Ionicons name="pencil" size={18} color={Palette.black} />
+                  <Text style={[styles.saveButtonText, { color: Palette.black }]}>Edit Theme</Text>
+                </TouchableOpacity>
+              </View>
+            </ScrollView>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Image Zoom Modal */}
+      <Modal visible={showImageZoom} transparent animationType="fade" onRequestClose={handleCloseImageZoom}>
+        <View style={[styles.imageZoomContainer, { backgroundColor: "rgba(0, 0, 0, 0.95)" }]}>
+          <TouchableOpacity style={styles.imageZoomOverlay} activeOpacity={1} onPress={handleCloseImageZoom}>
+            <View style={styles.imageZoomContent}>
+              <Image source={{ uri: zoomedImageUri }} style={styles.zoomedImage} resizeMode="contain" />
+            </View>
+          </TouchableOpacity>
+          
+          {/* Close Button */}
+          <TouchableOpacity style={styles.closeImageButton} onPress={handleCloseImageZoom}>
+            <Ionicons name="close" size={28} color="white" />
+          </TouchableOpacity>
         </View>
       </Modal>
     </View>
@@ -1163,10 +1307,17 @@ const styles = StyleSheet.create({
   thumbnailSection: {
     alignItems: "center",
     marginBottom: 12,
+    width: "100%",
   },
   thumbnailPreview: {
     width: 120,
     height: 120,
+    borderRadius: 8,
+    marginBottom: 12,
+  },
+  detailsThumbnail: {
+    width: "100%",
+    height: 250,
     borderRadius: 8,
     marginBottom: 12,
   },
@@ -1195,4 +1346,69 @@ const styles = StyleSheet.create({
     borderRadius: 6,
     borderWidth: 1,
   },
+  detailGroup: {
+    marginBottom: 20,
+  },
+  detailLabel: {
+    fontSize: 12,
+    fontWeight: "600",
+    marginBottom: 8,
+    textTransform: "uppercase",
+  },
+  detailValue: {
+    fontSize: 16,
+    fontWeight: "500",
+  },
+  colorPaletteContainer: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 12,
+  },
+  colorItem: {
+    alignItems: "center",
+    flex: 0.3,
+    minWidth: 80,
+  },
+  colorLabel: {
+    fontSize: 12,
+    marginTop: 8,
+    fontWeight: "500",
+  },
+  colorValue: {
+    fontSize: 11,
+    marginTop: 4,
+  },
+  imageZoomContainer: {
+    flex: 1,
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  imageZoomOverlay: {
+    flex: 1,
+    justifyContent: "center",
+    alignItems: "center",
+    width: "100%",
+  },
+  imageZoomContent: {
+    width: "90%",
+    height: "80%",
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  zoomedImage: {
+    width: "100%",
+    height: "100%",
+  },
+  closeImageButton: {
+    position: "absolute",
+    top: 20,
+    right: 20,
+    backgroundColor: "rgba(0, 0, 0, 0.6)",
+    borderRadius: 25,
+    width: 50,
+    height: 50,
+    justifyContent: "center",
+    alignItems: "center",
+  },
 });
+

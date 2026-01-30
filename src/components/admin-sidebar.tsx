@@ -1,6 +1,6 @@
 import { MaterialCommunityIcons } from "@expo/vector-icons";
 import { usePathname, useRouter } from "expo-router";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { ScrollView, StyleSheet, Text, TouchableOpacity, View } from "react-native";
 import { Palette } from "../../assets/colors/palette";
 
@@ -42,7 +42,7 @@ export default function AdminSidebar({ isDarkMode, isOpen }: AdminSidebarProps) 
     { 
       label: "Theme Management", 
       icon: "folder-multiple", 
-      route: null,
+      route: "/administrator_pages/theme_management/theme_management",
       hasDropdown: true,
       submenu: [
         { label: "Theme Management", route: "/administrator_pages/theme_management/theme_management" },
@@ -103,10 +103,10 @@ export default function AdminSidebar({ isDarkMode, isOpen }: AdminSidebarProps) 
     return null;
   };
 
-  const [initialExpanded] = useState(getInitialExpandedItem());
-
-  // Use initialExpanded if expandedItem hasn't been manually set
-  const effectiveExpandedItem = expandedItem !== null ? expandedItem : initialExpanded;
+  // Update expanded state when pathname changes
+  useEffect(() => {
+    setExpandedItem(getInitialExpandedItem());
+  }, [pathname]);
 
   const isActive = (route: string | null | undefined) => {
     if (!route) return false;
@@ -155,7 +155,7 @@ export default function AdminSidebar({ isDarkMode, isOpen }: AdminSidebarProps) 
         {navItems.map((item, index) => {
           const isItemActive = isActive(item.route);
           const isItemSubmenuActive = isSubmenuActive(item);
-          const isExpanded = effectiveExpandedItem === item.label;
+          const isExpanded = expandedItem === item.label;
           
           return (
             <View key={index}>
@@ -166,7 +166,12 @@ export default function AdminSidebar({ isDarkMode, isOpen }: AdminSidebarProps) 
                 ]}
                 onPress={() => {
                   if (item.hasDropdown) {
+                    // Toggle the dropdown
                     setExpandedItem(isExpanded ? null : item.label);
+                    // Only navigate if not already on this page
+                    if (item.route && pathname !== item.route) {
+                      router.push(item.route as any);
+                    }
                   } else if (item.route) {
                     router.push(item.route as any);
                   }
