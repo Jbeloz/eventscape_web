@@ -1,0 +1,68 @@
+-- Truncate script to reset all data from the database
+-- This will remove all records from tables while keeping the table structure intact
+-- Foreign key constraints are respected by truncating dependent tables first
+
+-- ===== DISABLE FOREIGN KEY CONSTRAINTS TEMPORARILY =====
+SET session_replication_role = REPLICA;
+
+-- ===== TRUNCATE TABLES (in dependency order) =====
+
+-- Dependent tables first (those with foreign keys)
+TRUNCATE TABLE package_add_ons RESTART IDENTITY CASCADE;
+TRUNCATE TABLE package_services RESTART IDENTITY CASCADE;
+TRUNCATE TABLE package_pax_prices RESTART IDENTITY CASCADE;
+TRUNCATE TABLE venue_seasonal_pricing RESTART IDENTITY CASCADE;
+TRUNCATE TABLE venue_package_inclusions RESTART IDENTITY CASCADE;
+TRUNCATE TABLE venue_packages RESTART IDENTITY CASCADE;
+TRUNCATE TABLE venue_overtime_rates RESTART IDENTITY CASCADE;
+TRUNCATE TABLE venue_base_rates RESTART IDENTITY CASCADE;
+TRUNCATE TABLE venue_doors RESTART IDENTITY CASCADE;
+TRUNCATE TABLE venue_floor_plans RESTART IDENTITY CASCADE;
+TRUNCATE TABLE venue_rules RESTART IDENTITY CASCADE;
+TRUNCATE TABLE venue_facilities RESTART IDENTITY CASCADE;
+TRUNCATE TABLE venue_images RESTART IDENTITY CASCADE;
+TRUNCATE TABLE venue_allowed_event_types RESTART IDENTITY CASCADE;
+TRUNCATE TABLE venue_specifications RESTART IDENTITY CASCADE;
+TRUNCATE TABLE venue_contacts RESTART IDENTITY CASCADE;
+TRUNCATE TABLE venue_venue_types RESTART IDENTITY CASCADE;
+TRUNCATE TABLE event_packages RESTART IDENTITY CASCADE;
+TRUNCATE TABLE event_theme_images RESTART IDENTITY CASCADE;
+TRUNCATE TABLE event_theme_accent_colors RESTART IDENTITY CASCADE;
+TRUNCATE TABLE event_theme_lighting RESTART IDENTITY CASCADE;
+TRUNCATE TABLE event_theme_decorations RESTART IDENTITY CASCADE;
+TRUNCATE TABLE event_theme_categories RESTART IDENTITY CASCADE;
+TRUNCATE TABLE add_ons RESTART IDENTITY CASCADE;
+TRUNCATE TABLE services RESTART IDENTITY CASCADE;
+
+-- Parent tables (referenced by others)
+TRUNCATE TABLE venues RESTART IDENTITY CASCADE;
+TRUNCATE TABLE venue_types RESTART IDENTITY CASCADE;
+TRUNCATE TABLE event_themes RESTART IDENTITY CASCADE;
+TRUNCATE TABLE event_categories RESTART IDENTITY CASCADE;
+TRUNCATE TABLE decoration_styles RESTART IDENTITY CASCADE;
+TRUNCATE TABLE lighting_styles RESTART IDENTITY CASCADE;
+TRUNCATE TABLE package_types RESTART IDENTITY CASCADE;
+TRUNCATE TABLE service_categories RESTART IDENTITY CASCADE;
+TRUNCATE TABLE add_on_categories RESTART IDENTITY CASCADE;
+
+-- User-related tables
+TRUNCATE TABLE customers RESTART IDENTITY CASCADE;
+TRUNCATE TABLE administrators RESTART IDENTITY CASCADE;
+TRUNCATE TABLE email_verification RESTART IDENTITY CASCADE;
+TRUNCATE TABLE password_reset RESTART IDENTITY CASCADE;
+TRUNCATE TABLE otp RESTART IDENTITY CASCADE;
+TRUNCATE TABLE user_photos RESTART IDENTITY CASCADE;
+TRUNCATE TABLE event_organizers RESTART IDENTITY CASCADE;
+TRUNCATE TABLE coordinators RESTART IDENTITY CASCADE;
+TRUNCATE TABLE venue_administrators RESTART IDENTITY CASCADE;
+
+-- Core users table (last, as it's referenced by most tables)
+TRUNCATE TABLE users RESTART IDENTITY CASCADE;
+
+-- ===== RE-ENABLE FOREIGN KEY CONSTRAINTS =====
+SET session_replication_role = DEFAULT;
+
+-- ===== TRUNCATE COMPLETE =====
+-- All data has been removed from the database
+-- Table structures remain intact
+-- Auto-increment sequences have been reset
