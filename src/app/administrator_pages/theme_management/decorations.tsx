@@ -2,6 +2,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { useEffect, useState } from "react";
 import {
   ActivityIndicator,
+  Alert,
   Modal,
   ScrollView,
   StyleSheet,
@@ -14,6 +15,7 @@ import { Palette } from "../../../../assets/colors/palette";
 import AdminHeader from "../../../components/admin-header";
 import AdminSidebar from "../../../components/admin-sidebar";
 import { useTheme } from "../../../context/theme-context";
+import { supabase } from "../../../services/supabase";
 
 export default function DecorationManagement() {
   const { isDarkMode, toggleTheme } = useTheme();
@@ -75,26 +77,46 @@ export default function DecorationManagement() {
   const fetchDecorationStyles = async () => {
     try {
       setLoading(true);
-      // TODO: Replace with actual Supabase query
-      setDecorationStyles(mockDecorationStyles);
+      const { data, error: err } = await supabase
+        .from("decoration_styles")
+        .select("*")
+        .order("created_at", { ascending: false });
+
+      if (err) throw err;
+
+      const formattedStyles = data?.map((style: any) => ({
+        id: style.decoration_style_id,
+        style_name: style.style_name,
+        createdDate: style.created_at ? style.created_at.split("T")[0] : "",
+        lastUpdated: style.updated_at ? style.updated_at.split("T")[0] : "",
+      })) || [];
+
+      setDecorationStyles(formattedStyles);
+      setError(null);
     } catch (err: any) {
       setError(err.message);
+      Alert.alert("Error", "Failed to load decoration styles: " + err.message);
     } finally {
       setLoading(false);
     }
   };
 
-  const handleAddStyle = () => {
+  const handleAddStyle = async () => {
     if (newStyleName.trim()) {
-      const newStyle = {
-        id: Math.max(...decorationStyles.map(s => s.id), 0) + 1,
-        style_name: newStyleName,
-        createdDate: new Date().toISOString().split("T")[0],
-        lastUpdated: new Date().toISOString().split("T")[0],
-      };
-      setDecorationStyles([...decorationStyles, newStyle]);
-      setNewStyleName("");
-      setShowAddModal(false);
+      try {
+        const { error: err } = await supabase
+          .from("decoration_styles")
+          .insert([{ style_name: newStyleName }]);
+
+        if (err) throw err;
+
+        Alert.alert("Success", "Decoration style added successfully");
+        setNewStyleName("");
+        setShowAddModal(false);
+        await fetchDecorationStyles();
+      } catch (err: any) {
+        Alert.alert("Error", "Failed to add decoration style: " + err.message);
+      }
     }
   };
 
@@ -109,22 +131,24 @@ export default function DecorationManagement() {
     setShowEditModal(true);
   };
 
-  const handleSaveEditStyle = () => {
+  const handleSaveEditStyle = async () => {
     if (editStyleName.trim() && editingStyle) {
-      setDecorationStyles(
-        decorationStyles.map((style) =>
-          style.id === editingStyle.id
-            ? {
-                ...style,
-                style_name: editStyleName,
-                lastUpdated: new Date().toISOString().split("T")[0],
-              }
-            : style
-        )
-      );
-      setShowEditModal(false);
-      setEditingStyle(null);
-      setEditStyleName("");
+      try {
+        const { error: err } = await supabase
+          .from("decoration_styles")
+          .update({ style_name: editStyleName })
+          .eq("decoration_style_id", editingStyle.id);
+
+        if (err) throw err;
+
+        Alert.alert("Success", "Decoration style updated successfully");
+        setShowEditModal(false);
+        setEditingStyle(null);
+        setEditStyleName("");
+        await fetchDecorationStyles();
+      } catch (err: any) {
+        Alert.alert("Error", "Failed to update decoration style: " + err.message);
+      }
     }
   };
 
@@ -135,7 +159,32 @@ export default function DecorationManagement() {
   };
 
   const handleDeleteStyle = (styleId: number) => {
-    setDecorationStyles(decorationStyles.filter((style) => style.id !== styleId));
+    Alert.alert(
+      "Delete Decoration Style",
+      "Are you sure you want to delete this decoration style?",
+      [
+        { text: "Cancel", onPress: () => {}, style: "cancel" },
+        {
+          text: "Delete",
+          onPress: async () => {
+            try {
+              const { error: err } = await supabase
+                .from("decoration_styles")
+                .delete()
+                .eq("decoration_style_id", styleId);
+
+              if (err) throw err;
+
+              Alert.alert("Success", "Decoration style deleted successfully");
+              await fetchDecorationStyles();
+            } catch (err: any) {
+              Alert.alert("Error", "Failed to delete decoration style: " + err.message);
+            }
+          },
+          style: "destructive",
+        },
+      ]
+    );
   };
 
   const filteredDecorationStyles = decorationStyles
