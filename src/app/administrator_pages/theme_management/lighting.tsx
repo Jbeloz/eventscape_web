@@ -1,19 +1,21 @@
 import { Ionicons } from "@expo/vector-icons";
 import { useEffect, useState } from "react";
 import {
-  ActivityIndicator,
-  Modal,
-  ScrollView,
-  StyleSheet,
-  Text,
-  TextInput,
-  TouchableOpacity,
-  View,
+    ActivityIndicator,
+    Alert,
+    Modal,
+    ScrollView,
+    StyleSheet,
+    Text,
+    TextInput,
+    TouchableOpacity,
+    View,
 } from "react-native";
 import { Palette } from "../../../../assets/colors/palette";
 import AdminHeader from "../../../components/admin-header";
 import AdminSidebar from "../../../components/admin-sidebar";
 import { useTheme } from "../../../context/theme-context";
+import { supabase } from "../../../services/supabase";
 
 export default function LightingManagement() {
   const { isDarkMode, toggleTheme } = useTheme();
@@ -74,26 +76,46 @@ export default function LightingManagement() {
   const fetchLightingStyles = async () => {
     try {
       setLoading(true);
-      // TODO: Replace with actual Supabase query for lighting_styles table
-      setLightingStyles(mockLightingStyles);
+      const { data, error: err } = await supabase
+        .from("lighting_styles")
+        .select("*")
+        .order("created_at", { ascending: false });
+
+      if (err) throw err;
+
+      const formattedStyles = data?.map((style: any) => ({
+        id: style.lighting_style_id,
+        style_name: style.style_name,
+        createdDate: style.created_at ? style.created_at.split("T")[0] : "",
+        lastUpdated: style.updated_at ? style.updated_at.split("T")[0] : "",
+      })) || [];
+
+      setLightingStyles(formattedStyles);
+      setError(null);
     } catch (err: any) {
       setError(err.message);
+      Alert.alert("Error", "Failed to load lighting styles: " + err.message);
     } finally {
       setLoading(false);
     }
   };
 
-  const handleAddStyle = () => {
+  const handleAddStyle = async () => {
     if (newStyleName.trim()) {
-      const newStyle = {
-        id: Math.max(...lightingStyles.map(s => s.id), 0) + 1,
-        style_name: newStyleName,
-        createdDate: new Date().toISOString().split("T")[0],
-        lastUpdated: new Date().toISOString().split("T")[0],
-      };
-      setLightingStyles([...lightingStyles, newStyle]);
-      setNewStyleName("");
-      setShowAddModal(false);
+      try {
+        const { error: err } = await supabase
+          .from("lighting_styles")
+          .insert([{ style_name: newStyleName }]);
+
+        if (err) throw err;
+
+        Alert.alert("Success", "Lighting style added successfully");
+        setNewStyleName("");
+        setShowAddModal(false);
+        await fetchLightingStyles();
+      } catch (err: any) {
+        Alert.alert("Error", "Failed to add lighting style: " + err.message);
+      }
     }
   };
 
@@ -108,22 +130,24 @@ export default function LightingManagement() {
     setShowEditModal(true);
   };
 
-  const handleSaveEditStyle = () => {
+  const handleSaveEditStyle = async () => {
     if (editStyleName.trim() && editingStyle) {
-      setLightingStyles(
-        lightingStyles.map((style) =>
-          style.id === editingStyle.id
-            ? {
-                ...style,
-                style_name: editStyleName,
-                lastUpdated: new Date().toISOString().split("T")[0],
-              }
-            : style
-        )
-      );
-      setShowEditModal(false);
-      setEditingStyle(null);
-      setEditStyleName("");
+      try {
+        const { error: err } = await supabase
+          .from("lighting_styles")
+          .update({ style_name: editStyleName })
+          .eq("lighting_style_id", editingStyle.id);
+
+        if (err) throw err;
+
+        Alert.alert("Success", "Lighting style updated successfully");
+        setShowEditModal(false);
+        setEditingStyle(null);
+        setEditStyleName("");
+        await fetchLightingStyles();
+      } catch (err: any) {
+        Alert.alert("Error", "Failed to update lighting style: " + err.message);
+      }
     }
   };
 
@@ -134,7 +158,32 @@ export default function LightingManagement() {
   };
 
   const handleDeleteStyle = (styleId: number) => {
-    setLightingStyles(lightingStyles.filter((style) => style.id !== styleId));
+    Alert.alert(
+      "Delete Lighting Style",
+      "Are you sure you want to delete this lighting style?",
+      [
+        { text: "Cancel", onPress: () => {}, style: "cancel" },
+        {
+          text: "Delete",
+          onPress: async () => {
+            try {
+              const { error: err } = await supabase
+                .from("lighting_styles")
+                .delete()
+                .eq("lighting_style_id", styleId);
+
+              if (err) throw err;
+
+              Alert.alert("Success", "Lighting style deleted successfully");
+              await fetchLightingStyles();
+            } catch (err: any) {
+              Alert.alert("Error", "Failed to delete lighting style: " + err.message);
+            }
+          },
+          style: "destructive",
+        },
+      ]
+    );
   };
 
   const filteredLightingStyles = lightingStyles

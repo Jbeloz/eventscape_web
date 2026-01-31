@@ -2,15 +2,15 @@ import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import { useState } from "react";
 import {
-    Image,
-    Modal,
-    ScrollView,
-    StyleSheet,
-    Switch,
-    Text,
-    TextInput,
-    TouchableOpacity,
-    View
+  Image,
+  Modal,
+  ScrollView,
+  StyleSheet,
+  Switch,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View
 } from "react-native";
 import { Palette } from "../../../../assets/colors/palette";
 import AdminHeader from "../../../components/admin-header";
@@ -31,7 +31,11 @@ export default function AddVenue() {
   // Form State - Step 1: Basic Info
   const [name, setName] = useState("");
   const [type, setType] = useState("");
-  const [location, setLocation] = useState("");
+  const [streetAddress, setStreetAddress] = useState("");
+  const [barangay, setBarangay] = useState("");
+  const [city, setCity] = useState("");
+  const [province, setProvince] = useState("");
+  const [zipCode, setZipCode] = useState("");
   const [capacity, setCapacity] = useState("");
 
   // Form State - Step 2: Technical Specs
@@ -172,7 +176,7 @@ export default function AddVenue() {
   const canProceedToNextStep = () => {
     switch (currentStep) {
       case 1:
-        return name && type && location && capacity;
+        return name && type && streetAddress && city && province && zipCode && capacity;
       case 2:
         return length && width && floorArea;
       case 3:
@@ -288,14 +292,67 @@ export default function AddVenue() {
               </View>
 
               <View style={styles.formGroup}>
-                <Text style={[styles.label, { color: theme.text }]}>Location *</Text>
+                <Text style={[styles.label, { color: theme.text }]}>Street Address *</Text>
                 <TextInput
                   style={[styles.input, { backgroundColor: theme.lightBg, color: theme.text, borderColor: theme.border }]}
-                  placeholder="e.g., Business District, Chicago"
+                  placeholder="e.g., 123 Main Street"
                   placeholderTextColor={theme.textSecondary}
-                  value={location}
-                  onChangeText={setLocation}
+                  value={streetAddress}
+                  onChangeText={setStreetAddress}
                 />
+              </View>
+
+              <View style={styles.formGroup}>
+                <Text style={[styles.label, { color: theme.text }]}>Barangay</Text>
+                <TextInput
+                  style={[styles.input, { backgroundColor: theme.lightBg, color: theme.text, borderColor: theme.border }]}
+                  placeholder="e.g., Barangay San Juan"
+                  placeholderTextColor={theme.textSecondary}
+                  value={barangay}
+                  onChangeText={setBarangay}
+                />
+              </View>
+
+              <View style={styles.formRow}>
+                <View style={[styles.formGroup, { flex: 1, marginRight: 8 }]}>
+                  <Text style={[styles.label, { color: theme.text }]}>City *</Text>
+                  <TextInput
+                    style={[styles.input, { backgroundColor: theme.lightBg, color: theme.text, borderColor: theme.border }]}
+                    placeholder="e.g., Manila"
+                    placeholderTextColor={theme.textSecondary}
+                    value={city}
+                    onChangeText={setCity}
+                  />
+                </View>
+                <View style={[styles.formGroup, { flex: 1, marginLeft: 8 }]}>
+                  <Text style={[styles.label, { color: theme.text }]}>Province *</Text>
+                  <TextInput
+                    style={[styles.input, { backgroundColor: theme.lightBg, color: theme.text, borderColor: theme.border }]}
+                    placeholder="e.g., Metro Manila"
+                    placeholderTextColor={theme.textSecondary}
+                    value={province}
+                    onChangeText={setProvince}
+                  />
+                </View>
+              </View>
+
+              <View style={styles.formRow}>
+                <View style={[styles.formGroup, { flex: 0.5, marginRight: 8 }]}>
+                  <Text style={[styles.label, { color: theme.text }]}>Zip Code *</Text>
+                  <TextInput
+                    style={[styles.input, { backgroundColor: theme.lightBg, color: theme.text, borderColor: theme.border }]}
+                    placeholder="e.g., 1000"
+                    placeholderTextColor={theme.textSecondary}
+                    value={zipCode}
+                    onChangeText={setZipCode}
+                  />
+                </View>
+                <View style={[styles.formGroup, { flex: 1, marginLeft: 8 }]}>
+                  <Text style={[styles.label, { color: theme.text }]}>Country</Text>
+                  <View style={[styles.input, { backgroundColor: theme.lightBg, borderColor: theme.border, justifyContent: "center" }]}>
+                    <Text style={{ color: theme.text, fontSize: 14 }}>Philippines</Text>
+                  </View>
+                </View>
               </View>
 
               <View style={styles.formGroup}>
@@ -1078,6 +1135,10 @@ const styles = StyleSheet.create({
   },
   formGroup: {
     marginBottom: 16,
+  },
+  formRow: {
+    flexDirection: "row",
+    gap: 8,
   },
   label: {
     fontSize: 13,

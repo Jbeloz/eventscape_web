@@ -32,7 +32,7 @@ export default function AdminSidebar({ isDarkMode, isOpen }: AdminSidebarProps) 
     { 
       label: "Venue Management", 
       icon: "home-city", 
-      route: null,
+      route: "/administrator_pages/venue_management/all_venues",
       hasDropdown: true,
       submenu: [
         { label: "All Venues", route: "/administrator_pages/venue_management/all_venues" },
@@ -53,9 +53,39 @@ export default function AdminSidebar({ isDarkMode, isOpen }: AdminSidebarProps) 
       ]
     },
     { 
+      label: "Event Package Management", 
+      icon: "package-multiple", 
+      route: "/administrator_pages/event_package_management/event_package",
+      hasDropdown: true,
+      submenu: [
+        { label: "Event Package", route: "/administrator_pages/event_package_management/event_package" },
+        { label: "Package Type", route: "/administrator_pages/event_package_management/package_type" },
+      ]
+    },
+    { 
+      label: "Service Management", 
+      icon: "service", 
+      route: "/administrator_pages/service_management/services",
+      hasDropdown: true,
+      submenu: [
+        { label: "Services", route: "/administrator_pages/service_management/services" },
+        { label: "Service Category", route: "/administrator_pages/service_management/service_category" },
+      ]
+    },
+    { 
+      label: "Add Ons Management", 
+      icon: "plus-circle-multiple", 
+      route: "/administrator_pages/addons_management/addons",
+      hasDropdown: true,
+      submenu: [
+        { label: "Add Ons", route: "/administrator_pages/addons_management/addons" },
+        { label: "Add Ons Category", route: "/administrator_pages/addons_management/addons_category" },
+      ]
+    },
+    { 
       label: "Assets Management", 
       icon: "file-cabinet", 
-      route: null,
+      route: "/administrator_pages/asset_management/all_assets",
       hasDropdown: true,
       submenu: [
         { label: "All Assets", route: "/administrator_pages/asset_management/all_assets" },
@@ -74,7 +104,7 @@ export default function AdminSidebar({ isDarkMode, isOpen }: AdminSidebarProps) 
   const getInitialExpandedItem = () => {
     for (const item of navItems) {
       if (item.submenu) {
-        // For Venue Management, also check if we're on add_venue or edit_venue pages
+        // For Venue Management
         if (item.label === "Venue Management") {
           const venueRoutes = [
             "/administrator_pages/venue_management/all_venues",
@@ -93,6 +123,38 @@ export default function AdminSidebar({ isDarkMode, isOpen }: AdminSidebarProps) 
             "/administrator_pages/theme_management/lighting",
           ];
           if (categoryRoutes.some(route => pathname === route)) {
+            return item.label;
+          }
+        } else if (item.label === "Event Package Management") {
+          const packageRoutes = [
+            "/administrator_pages/event_package_management/event_package",
+            "/administrator_pages/event_package_management/package_type",
+          ];
+          if (packageRoutes.some(route => pathname === route)) {
+            return item.label;
+          }
+        } else if (item.label === "Service Management") {
+          const serviceRoutes = [
+            "/administrator_pages/service_management/services",
+            "/administrator_pages/service_management/service_category",
+          ];
+          if (serviceRoutes.some(route => pathname === route)) {
+            return item.label;
+          }
+        } else if (item.label === "Add Ons Management") {
+          const addonsRoutes = [
+            "/administrator_pages/addons_management/addons",
+            "/administrator_pages/addons_management/addons_category",
+          ];
+          if (addonsRoutes.some(route => pathname === route)) {
+            return item.label;
+          }
+        } else if (item.label === "Assets Management") {
+          const assetRoutes = [
+            "/administrator_pages/asset_management/all_assets",
+            "/administrator_pages/asset_management/asset_categories",
+          ];
+          if (assetRoutes.some(route => pathname === route)) {
             return item.label;
           }
         } else if (item.submenu.some(sub => pathname === sub.route)) {
@@ -127,7 +189,7 @@ export default function AdminSidebar({ isDarkMode, isOpen }: AdminSidebarProps) 
       return venueRoutes.some(route => pathname === route);
     }
     
-    // For Category Management
+    // For Theme Management
     if (item.label === "Theme Management") {
       const categoryRoutes = [
         "/administrator_pages/theme_management/theme_management",
@@ -136,6 +198,42 @@ export default function AdminSidebar({ isDarkMode, isOpen }: AdminSidebarProps) 
         "/administrator_pages/theme_management/lighting",
       ];
       return categoryRoutes.some(route => pathname === route);
+    }
+    
+    // For Event Package Management
+    if (item.label === "Event Package Management") {
+      const packageRoutes = [
+        "/administrator_pages/event_package_management/event_package",
+        "/administrator_pages/event_package_management/package_type",
+      ];
+      return packageRoutes.some(route => pathname === route);
+    }
+    
+    // For Service Management
+    if (item.label === "Service Management") {
+      const serviceRoutes = [
+        "/administrator_pages/service_management/services",
+        "/administrator_pages/service_management/service_category",
+      ];
+      return serviceRoutes.some(route => pathname === route);
+    }
+    
+    // For Add Ons Management
+    if (item.label === "Add Ons Management") {
+      const addonsRoutes = [
+        "/administrator_pages/addons_management/addons",
+        "/administrator_pages/addons_management/addons_category",
+      ];
+      return addonsRoutes.some(route => pathname === route);
+    }
+    
+    // For Assets Management
+    if (item.label === "Assets Management") {
+      const assetRoutes = [
+        "/administrator_pages/asset_management/all_assets",
+        "/administrator_pages/asset_management/asset_categories",
+      ];
+      return assetRoutes.some(route => pathname === route);
     }
     
     return item.submenu.some(sub => pathname === sub.route);

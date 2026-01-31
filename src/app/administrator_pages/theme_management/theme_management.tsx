@@ -35,28 +35,79 @@ export default function ThemeManagement() {
 
   // Add Theme Modal State
   const [themeName, setThemeName] = useState("");
-  const [themeStatus, setThemeStatus] = useState("Active");
   const [description, setDescription] = useState("");
   const [addColors, setAddColors] = useState<string[]>(["#6C9BCF"]); // [mainColor, secondaryColor?, ...accentColors]
   const [newAddColor, setNewAddColor] = useState("");
   const [thumbnailUri, setThumbnailUri] = useState("");
+  const [selectedDecoration, setSelectedDecoration] = useState("");
+  const [selectedLighting, setSelectedLighting] = useState("");
+  const [selectedCategory, setSelectedCategory] = useState("");
+  const [decorationDropdownOpen, setDecorationDropdownOpen] = useState(false);
+  const [lightingDropdownOpen, setLightingDropdownOpen] = useState(false);
+  const [categoryDropdownOpen, setCategoryDropdownOpen] = useState(false);
 
   // Edit Theme Modal State
   const [editThemeName, setEditThemeName] = useState("");
-  const [editThemeStatus, setEditThemeStatus] = useState("Active");
   const [editDescription, setEditDescription] = useState("");
   const [editColors, setEditColors] = useState<string[]>([]);
   const [editThumbnailUri, setEditThumbnailUri] = useState("");
+  const [editSelectedDecoration, setEditSelectedDecoration] = useState("");
+  const [editSelectedLighting, setEditSelectedLighting] = useState("");
+  const [editSelectedCategory, setEditSelectedCategory] = useState("");
+  const [editDecorationDropdownOpen, setEditDecorationDropdownOpen] = useState(false);
+  const [editLightingDropdownOpen, setEditLightingDropdownOpen] = useState(false);
+  const [editCategoryDropdownOpen, setEditCategoryDropdownOpen] = useState(false);
 
   const [themes, setThemes] = useState<any[]>([]);
+  const [decorationStyles, setDecorationStyles] = useState<any[]>([]);
+  const [lightingStyles, setLightingStyles] = useState<any[]>([]);
+  const [eventCategories, setEventCategories] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   const theme = isDarkMode ? Palette.dark : Palette.light;
 
-  useEffect(() => {
-    fetchThemes();
-  }, []);
+  const fetchDecorationStyles = async () => {
+    try {
+      const { data, error: err } = await supabase
+        .from("decoration_styles")
+        .select("decoration_style_id, style_name")
+        .order("style_name", { ascending: true });
+
+      if (err) throw err;
+      setDecorationStyles(data || []);
+    } catch (err: any) {
+      console.error("Error fetching decoration styles:", err.message);
+    }
+  };
+
+  const fetchLightingStyles = async () => {
+    try {
+      const { data, error: err } = await supabase
+        .from("lighting_styles")
+        .select("lighting_style_id, style_name")
+        .order("style_name", { ascending: true });
+
+      if (err) throw err;
+      setLightingStyles(data || []);
+    } catch (err: any) {
+      console.error("Error fetching lighting styles:", err.message);
+    }
+  };
+
+  const fetchEventCategories = async () => {
+    try {
+      const { data, error: err } = await supabase
+        .from("event_categories")
+        .select("category_id, category_name")
+        .order("category_name", { ascending: true });
+
+      if (err) throw err;
+      setEventCategories(data || []);
+    } catch (err: any) {
+      console.error("Error fetching event categories:", err.message);
+    }
+  };
 
   const fetchThemes = async () => {
     try {
@@ -112,6 +163,34 @@ export default function ThemeManagement() {
     }
   };
 
+  // Helper function to get decoration style name from ID
+  const getDecorationName = (decorationId: string | number) => {
+    if (!decorationId) return "";
+    const style = decorationStyles.find((s) => s.decoration_style_id == decorationId);
+    return style?.style_name || "";
+  };
+
+  // Helper function to get lighting style name from ID
+  const getLightingName = (lightingId: string | number) => {
+    if (!lightingId) return "";
+    const style = lightingStyles.find((s) => s.lighting_style_id == lightingId);
+    return style?.style_name || "";
+  };
+
+  // Helper function to get category name from ID
+  const getCategoryName = (categoryId: string | number) => {
+    if (!categoryId) return "";
+    const category = eventCategories.find((c) => c.category_id == categoryId);
+    return category?.category_name || "";
+  };
+
+  useEffect(() => {
+    fetchDecorationStyles();
+    fetchLightingStyles();
+    fetchEventCategories();
+    fetchThemes();
+  }, []);
+
   const handleAddTheme = async () => {
     if (themeName.trim()) {
       try {
@@ -127,7 +206,7 @@ export default function ThemeManagement() {
               theme_description: description,
               primary_color: mainColor,
               secondary_color: secondaryColor,
-              is_active: themeStatus === "Active",
+              is_active: true,
             },
           ])
           .select();
@@ -165,6 +244,48 @@ export default function ThemeManagement() {
           if (accentErr) throw accentErr;
         }
 
+        // Insert decoration style if selected
+        if (selectedDecoration && newTheme?.event_theme_id) {
+          const { error: decorErr } = await supabase
+            .from("event_theme_decorations")
+            .insert([
+              {
+                event_theme_id: newTheme.event_theme_id,
+                decoration_style_id: selectedDecoration,
+              },
+            ]);
+
+          if (decorErr) throw decorErr;
+        }
+
+        // Insert lighting style if selected
+        if (selectedLighting && newTheme?.event_theme_id) {
+          const { error: lightErr } = await supabase
+            .from("event_theme_lighting")
+            .insert([
+              {
+                event_theme_id: newTheme.event_theme_id,
+                lighting_style_id: selectedLighting,
+              },
+            ]);
+
+          if (lightErr) throw lightErr;
+        }
+
+        // Insert category if selected
+        if (selectedCategory && newTheme?.event_theme_id) {
+          const { error: catErr } = await supabase
+            .from("event_theme_categories")
+            .insert([
+              {
+                event_theme_id: newTheme.event_theme_id,
+                category_id: selectedCategory,
+              },
+            ]);
+
+          if (catErr) throw catErr;
+        }
+
         Alert.alert("Success", "Theme added successfully");
         resetAddModal();
         setShowAddModal(false);
@@ -179,11 +300,16 @@ export default function ThemeManagement() {
 
   const resetAddModal = () => {
     setThemeName("");
-    setThemeStatus("Active");
     setDescription("");
     setAddColors(["#6C9BCF"]);
     setNewAddColor("");
     setThumbnailUri("");
+    setSelectedDecoration("");
+    setSelectedLighting("");
+    setSelectedCategory("");
+    setDecorationDropdownOpen(false);
+    setLightingDropdownOpen(false);
+    setCategoryDropdownOpen(false);
   };
 
   const pickImageForAddTheme = async () => {
@@ -256,10 +382,15 @@ export default function ThemeManagement() {
   const handleEditTheme = (themeItem: any) => {
     setEditingTheme(themeItem);
     setEditThemeName(themeItem.name);
-    setEditThemeStatus(themeItem.status);
     setEditDescription(themeItem.description);
     setEditColors(themeItem.colors || ["#000000"]);
     setEditThumbnailUri(themeItem.thumbnail || "");
+    setEditSelectedDecoration("");
+    setEditSelectedLighting("");
+    setEditSelectedCategory("");
+    setEditDecorationDropdownOpen(false);
+    setEditLightingDropdownOpen(false);
+    setEditCategoryDropdownOpen(false);
     setShowEditModal(true);
   };
 
@@ -293,7 +424,7 @@ export default function ThemeManagement() {
             theme_description: editDescription,
             primary_color: mainColor,
             secondary_color: secondaryColor,
-            is_active: editThemeStatus === "Active",
+            is_active: editingTheme.status === "Active",
           })
           .eq("event_theme_id", editingTheme.id);
 
@@ -343,6 +474,72 @@ export default function ThemeManagement() {
             .insert(accentColorsData);
 
           if (accentErr) throw accentErr;
+        }
+
+        // Delete existing decorations and update
+        const { error: deleteDecoErr } = await supabase
+          .from("event_theme_decorations")
+          .delete()
+          .eq("event_theme_id", editingTheme.id);
+
+        if (deleteDecoErr) throw deleteDecoErr;
+
+        // Insert updated decoration style if selected
+        if (editSelectedDecoration) {
+          const { error: decorErr } = await supabase
+            .from("event_theme_decorations")
+            .insert([
+              {
+                event_theme_id: editingTheme.id,
+                decoration_style_id: editSelectedDecoration,
+              },
+            ]);
+
+          if (decorErr) throw decorErr;
+        }
+
+        // Delete existing lighting and update
+        const { error: deleteLightErr } = await supabase
+          .from("event_theme_lighting")
+          .delete()
+          .eq("event_theme_id", editingTheme.id);
+
+        if (deleteLightErr) throw deleteLightErr;
+
+        // Insert updated lighting style if selected
+        if (editSelectedLighting) {
+          const { error: lightErr } = await supabase
+            .from("event_theme_lighting")
+            .insert([
+              {
+                event_theme_id: editingTheme.id,
+                lighting_style_id: editSelectedLighting,
+              },
+            ]);
+
+          if (lightErr) throw lightErr;
+        }
+
+        // Delete existing categories and update
+        const { error: deleteCatErr } = await supabase
+          .from("event_theme_categories")
+          .delete()
+          .eq("event_theme_id", editingTheme.id);
+
+        if (deleteCatErr) throw deleteCatErr;
+
+        // Insert updated category if selected
+        if (editSelectedCategory) {
+          const { error: catErr } = await supabase
+            .from("event_theme_categories")
+            .insert([
+              {
+                event_theme_id: editingTheme.id,
+                category_id: editSelectedCategory,
+              },
+            ]);
+
+          if (catErr) throw catErr;
         }
 
         Alert.alert("Success", "Theme updated successfully");
@@ -569,21 +766,6 @@ export default function ThemeManagement() {
                   />
                 </View>
 
-                <View style={styles.formRow}>
-                  <View style={[styles.formGroup, { flex: 1, marginRight: 12 }]}>
-                    <Text style={[styles.formLabel, { color: theme.text }]}>Status</Text>
-                    <TouchableOpacity
-                      style={[styles.formDropdown, { borderColor: theme.border }]}
-                    >
-                      <Text style={[styles.dropdownPlaceholder, { color: theme.text }]}>
-                        {themeStatus}
-                      </Text>
-                      <Ionicons name="chevron-down" size={18} color={theme.textSecondary} />
-                    </TouchableOpacity>
-                  </View>
-                  <View style={[styles.formGroup, { flex: 1 }]} />
-                </View>
-
                 <View style={styles.formGroup}>
                   <Text style={[styles.formLabel, { color: theme.text }]}>Description</Text>
                   <TextInput
@@ -649,6 +831,96 @@ export default function ThemeManagement() {
                       Add {addColors.length === 1 ? "Secondary Color" : "Accent Color"}
                     </Text>
                   </TouchableOpacity>
+                </View>
+
+                {/* Decoration Style */}
+                <View style={styles.formGroup}>
+                  <Text style={[styles.formLabel, { color: theme.text }]}>Decoration Style (Optional)</Text>
+                  <TouchableOpacity
+                    style={[styles.formDropdown, { borderColor: theme.border }]}
+                    onPress={() => setDecorationDropdownOpen(!decorationDropdownOpen)}
+                  >
+                    <Text style={[styles.dropdownPlaceholder, { color: selectedDecoration ? theme.text : theme.textSecondary }]}>
+                      {selectedDecoration ? getDecorationName(selectedDecoration) : "Select decoration style"}
+                    </Text>
+                    <Ionicons name={decorationDropdownOpen ? "chevron-up" : "chevron-down"} size={18} color={theme.textSecondary} />
+                  </TouchableOpacity>
+                  {decorationDropdownOpen && (
+                    <View style={[styles.dropdownMenu, { backgroundColor: theme.card, borderColor: theme.border }]}>
+                      {decorationStyles.map((style) => (
+                        <TouchableOpacity
+                          key={style.decoration_style_id}
+                          style={[styles.dropdownItem, { borderColor: theme.border }]}
+                          onPress={() => {
+                            setSelectedDecoration(style.decoration_style_id);
+                            setDecorationDropdownOpen(false);
+                          }}
+                        >
+                          <Text style={[styles.dropdownItemText, { color: theme.text }]}>{style.style_name}</Text>
+                        </TouchableOpacity>
+                      ))}
+                    </View>
+                  )}
+                </View>
+
+                {/* Lighting Style */}
+                <View style={styles.formGroup}>
+                  <Text style={[styles.formLabel, { color: theme.text }]}>Lighting Style (Optional)</Text>
+                  <TouchableOpacity
+                    style={[styles.formDropdown, { borderColor: theme.border }]}
+                    onPress={() => setLightingDropdownOpen(!lightingDropdownOpen)}
+                  >
+                    <Text style={[styles.dropdownPlaceholder, { color: selectedLighting ? theme.text : theme.textSecondary }]}>
+                      {selectedLighting ? getLightingName(selectedLighting) : "Select lighting style"}
+                    </Text>
+                    <Ionicons name={lightingDropdownOpen ? "chevron-up" : "chevron-down"} size={18} color={theme.textSecondary} />
+                  </TouchableOpacity>
+                  {lightingDropdownOpen && (
+                    <View style={[styles.dropdownMenu, { backgroundColor: theme.card, borderColor: theme.border }]}>
+                      {lightingStyles.map((style) => (
+                        <TouchableOpacity
+                          key={style.lighting_style_id}
+                          style={[styles.dropdownItem, { borderColor: theme.border }]}
+                          onPress={() => {
+                            setSelectedLighting(style.lighting_style_id);
+                            setLightingDropdownOpen(false);
+                          }}
+                        >
+                          <Text style={[styles.dropdownItemText, { color: theme.text }]}>{style.style_name}</Text>
+                        </TouchableOpacity>
+                      ))}
+                    </View>
+                  )}
+                </View>
+
+                {/* Category */}
+                <View style={styles.formGroup}>
+                  <Text style={[styles.formLabel, { color: theme.text }]}>Category (Optional)</Text>
+                  <TouchableOpacity
+                    style={[styles.formDropdown, { borderColor: theme.border }]}
+                    onPress={() => setCategoryDropdownOpen(!categoryDropdownOpen)}
+                  >
+                    <Text style={[styles.dropdownPlaceholder, { color: selectedCategory ? theme.text : theme.textSecondary }]}>
+                      {selectedCategory ? getCategoryName(selectedCategory) : "Select category"}
+                    </Text>
+                    <Ionicons name={categoryDropdownOpen ? "chevron-up" : "chevron-down"} size={18} color={theme.textSecondary} />
+                  </TouchableOpacity>
+                  {categoryDropdownOpen && (
+                    <View style={[styles.dropdownMenu, { backgroundColor: theme.card, borderColor: theme.border }]}>
+                      {eventCategories.map((category) => (
+                        <TouchableOpacity
+                          key={category.category_id}
+                          style={[styles.dropdownItem, { borderColor: theme.border }]}
+                          onPress={() => {
+                            setSelectedCategory(category.category_id);
+                            setCategoryDropdownOpen(false);
+                          }}
+                        >
+                          <Text style={[styles.dropdownItemText, { color: theme.text }]}>{category.category_name}</Text>
+                        </TouchableOpacity>
+                      ))}
+                    </View>
+                  )}
                 </View>
 
                 {/* Thumbnail */}
@@ -755,19 +1027,6 @@ export default function ThemeManagement() {
                   />
                 </View>
 
-                <View style={styles.formRow}>
-                  <View style={[styles.formGroup, { flex: 1, marginRight: 12 }]}>
-                    <Text style={[styles.formLabel, { color: theme.text }]}>Status</Text>
-                    <TouchableOpacity style={[styles.formDropdown, { borderColor: theme.border }]}>
-                      <Text style={[styles.dropdownPlaceholder, { color: theme.text }]}>
-                        {editThemeStatus}
-                      </Text>
-                      <Ionicons name="chevron-down" size={18} color={theme.textSecondary} />
-                    </TouchableOpacity>
-                  </View>
-                  <View style={[styles.formGroup, { flex: 1 }]} />
-                </View>
-
                 <View style={styles.formGroup}>
                   <Text style={[styles.formLabel, { color: theme.text }]}>Description</Text>
                   <TextInput
@@ -810,6 +1069,96 @@ export default function ThemeManagement() {
                     </View>
                   </View>
                 ))}
+
+                {/* Decoration Style */}
+                <View style={styles.formGroup}>
+                  <Text style={[styles.formLabel, { color: theme.text }]}>Decoration Style (Optional)</Text>
+                  <TouchableOpacity
+                    style={[styles.formDropdown, { borderColor: theme.border }]}
+                    onPress={() => setEditDecorationDropdownOpen(!editDecorationDropdownOpen)}
+                  >
+                    <Text style={[styles.dropdownPlaceholder, { color: editSelectedDecoration ? theme.text : theme.textSecondary }]}>
+                      {editSelectedDecoration ? getDecorationName(editSelectedDecoration) : "Select decoration style"}
+                    </Text>
+                    <Ionicons name={editDecorationDropdownOpen ? "chevron-up" : "chevron-down"} size={18} color={theme.textSecondary} />
+                  </TouchableOpacity>
+                  {editDecorationDropdownOpen && (
+                    <View style={[styles.dropdownMenu, { backgroundColor: theme.card, borderColor: theme.border }]}>
+                      {decorationStyles.map((style) => (
+                        <TouchableOpacity
+                          key={style.decoration_style_id}
+                          style={[styles.dropdownItem, { borderColor: theme.border }]}
+                          onPress={() => {
+                            setEditSelectedDecoration(style.decoration_style_id);
+                            setEditDecorationDropdownOpen(false);
+                          }}
+                        >
+                          <Text style={[styles.dropdownItemText, { color: theme.text }]}>{style.style_name}</Text>
+                        </TouchableOpacity>
+                      ))}
+                    </View>
+                  )}
+                </View>
+
+                {/* Lighting Style */}
+                <View style={styles.formGroup}>
+                  <Text style={[styles.formLabel, { color: theme.text }]}>Lighting Style (Optional)</Text>
+                  <TouchableOpacity
+                    style={[styles.formDropdown, { borderColor: theme.border }]}
+                    onPress={() => setEditLightingDropdownOpen(!editLightingDropdownOpen)}
+                  >
+                    <Text style={[styles.dropdownPlaceholder, { color: editSelectedLighting ? theme.text : theme.textSecondary }]}>
+                      {editSelectedLighting ? getLightingName(editSelectedLighting) : "Select lighting style"}
+                    </Text>
+                    <Ionicons name={editLightingDropdownOpen ? "chevron-up" : "chevron-down"} size={18} color={theme.textSecondary} />
+                  </TouchableOpacity>
+                  {editLightingDropdownOpen && (
+                    <View style={[styles.dropdownMenu, { backgroundColor: theme.card, borderColor: theme.border }]}>
+                      {lightingStyles.map((style) => (
+                        <TouchableOpacity
+                          key={style.lighting_style_id}
+                          style={[styles.dropdownItem, { borderColor: theme.border }]}
+                          onPress={() => {
+                            setEditSelectedLighting(style.lighting_style_id);
+                            setEditLightingDropdownOpen(false);
+                          }}
+                        >
+                          <Text style={[styles.dropdownItemText, { color: theme.text }]}>{style.style_name}</Text>
+                        </TouchableOpacity>
+                      ))}
+                    </View>
+                  )}
+                </View>
+
+                {/* Category */}
+                <View style={styles.formGroup}>
+                  <Text style={[styles.formLabel, { color: theme.text }]}>Category (Optional)</Text>
+                  <TouchableOpacity
+                    style={[styles.formDropdown, { borderColor: theme.border }]}
+                    onPress={() => setEditCategoryDropdownOpen(!editCategoryDropdownOpen)}
+                  >
+                    <Text style={[styles.dropdownPlaceholder, { color: editSelectedCategory ? theme.text : theme.textSecondary }]}>
+                      {editSelectedCategory ? getCategoryName(editSelectedCategory) : "Select category"}
+                    </Text>
+                    <Ionicons name={editCategoryDropdownOpen ? "chevron-up" : "chevron-down"} size={18} color={theme.textSecondary} />
+                  </TouchableOpacity>
+                  {editCategoryDropdownOpen && (
+                    <View style={[styles.dropdownMenu, { backgroundColor: theme.card, borderColor: theme.border }]}>
+                      {eventCategories.map((category) => (
+                        <TouchableOpacity
+                          key={category.category_id}
+                          style={[styles.dropdownItem, { borderColor: theme.border }]}
+                          onPress={() => {
+                            setEditSelectedCategory(category.category_id);
+                            setEditCategoryDropdownOpen(false);
+                          }}
+                        >
+                          <Text style={[styles.dropdownItemText, { color: theme.text }]}>{category.category_name}</Text>
+                        </TouchableOpacity>
+                      ))}
+                    </View>
+                  )}
+                </View>
 
                 {/* Thumbnail */}
                 <View style={styles.formGroup}>
@@ -1080,12 +1429,14 @@ const styles = StyleSheet.create({
   },
   dropdownMenu: {
     position: "absolute",
-    top: 45,
+    top: 70,
     left: 0,
     right: 0,
     borderWidth: 1,
     borderRadius: 8,
     minWidth: 150,
+    zIndex: 1000,
+    maxHeight: 200,
   },
   dropdownItem: {
     paddingHorizontal: 12,
