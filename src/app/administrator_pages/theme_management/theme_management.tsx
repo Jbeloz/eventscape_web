@@ -1,5 +1,4 @@
 import { Ionicons } from "@expo/vector-icons";
-import * as ImagePicker from "expo-image-picker";
 import { useEffect, useState } from "react";
 import {
   ActivityIndicator,
@@ -17,6 +16,8 @@ import {
 import { Palette } from "../../../../assets/colors/palette";
 import AdminHeader from "../../../components/admin-header";
 import AdminSidebar from "../../../components/admin-sidebar";
+import StyledDropdown from "../../../components/styled-dropdown";
+import ThumbnailUpload from "../../../components/thumbnail-upload";
 import { useTheme } from "../../../context/theme-context";
 import { supabase } from "../../../services/supabase";
 
@@ -39,9 +40,9 @@ export default function ThemeManagement() {
   const [addColors, setAddColors] = useState<string[]>(["#6C9BCF"]); // [mainColor, secondaryColor?, ...accentColors]
   const [newAddColor, setNewAddColor] = useState("");
   const [thumbnailUri, setThumbnailUri] = useState("");
-  const [selectedDecoration, setSelectedDecoration] = useState("");
-  const [selectedLighting, setSelectedLighting] = useState("");
-  const [selectedCategory, setSelectedCategory] = useState("");
+  const [selectedDecoration, setSelectedDecoration] = useState<string | number>("");
+  const [selectedLighting, setSelectedLighting] = useState<string | number>("");
+  const [selectedCategory, setSelectedCategory] = useState<string | number>("");
   const [decorationDropdownOpen, setDecorationDropdownOpen] = useState(false);
   const [lightingDropdownOpen, setLightingDropdownOpen] = useState(false);
   const [categoryDropdownOpen, setCategoryDropdownOpen] = useState(false);
@@ -51,9 +52,9 @@ export default function ThemeManagement() {
   const [editDescription, setEditDescription] = useState("");
   const [editColors, setEditColors] = useState<string[]>([]);
   const [editThumbnailUri, setEditThumbnailUri] = useState("");
-  const [editSelectedDecoration, setEditSelectedDecoration] = useState("");
-  const [editSelectedLighting, setEditSelectedLighting] = useState("");
-  const [editSelectedCategory, setEditSelectedCategory] = useState("");
+  const [editSelectedDecoration, setEditSelectedDecoration] = useState<string | number>("");
+  const [editSelectedLighting, setEditSelectedLighting] = useState<string | number>("");
+  const [editSelectedCategory, setEditSelectedCategory] = useState<string | number>("");
   const [editDecorationDropdownOpen, setEditDecorationDropdownOpen] = useState(false);
   const [editLightingDropdownOpen, setEditLightingDropdownOpen] = useState(false);
   const [editCategoryDropdownOpen, setEditCategoryDropdownOpen] = useState(false);
@@ -310,40 +311,6 @@ export default function ThemeManagement() {
     setDecorationDropdownOpen(false);
     setLightingDropdownOpen(false);
     setCategoryDropdownOpen(false);
-  };
-
-  const pickImageForAddTheme = async () => {
-    try {
-      const result = await ImagePicker.launchImageLibraryAsync({
-        mediaTypes: ImagePicker.MediaTypeOptions.Images,
-        allowsEditing: true,
-        aspect: [16, 9],
-        quality: 0.8,
-      });
-
-      if (!result.canceled && result.assets[0]) {
-        setThumbnailUri(result.assets[0].uri);
-      }
-    } catch (error) {
-      Alert.alert("Error", "Failed to pick image");
-    }
-  };
-
-  const pickImageForEditTheme = async () => {
-    try {
-      const result = await ImagePicker.launchImageLibraryAsync({
-        mediaTypes: ImagePicker.MediaTypeOptions.Images,
-        allowsEditing: true,
-        aspect: [16, 9],
-        quality: 0.8,
-      });
-
-      if (!result.canceled && result.assets[0]) {
-        setEditThumbnailUri(result.assets[0].uri);
-      }
-    } catch (error) {
-      Alert.alert("Error", "Failed to pick image");
-    }
   };
 
   const handleAddAccentColor = () => {
@@ -833,145 +800,50 @@ export default function ThemeManagement() {
                   </TouchableOpacity>
                 </View>
 
-                {/* Decoration Style */}
-                <View style={styles.formGroup}>
-                  <Text style={[styles.formLabel, { color: theme.text }]}>Decoration Style (Optional)</Text>
-                  <TouchableOpacity
-                    style={[styles.formDropdown, { borderColor: theme.border }]}
-                    onPress={() => setDecorationDropdownOpen(!decorationDropdownOpen)}
-                  >
-                    <Text style={[styles.dropdownPlaceholder, { color: selectedDecoration ? theme.text : theme.textSecondary }]}>
-                      {selectedDecoration ? getDecorationName(selectedDecoration) : "Select decoration style"}
-                    </Text>
-                    <Ionicons name={decorationDropdownOpen ? "chevron-up" : "chevron-down"} size={18} color={theme.textSecondary} />
-                  </TouchableOpacity>
-                  {decorationDropdownOpen && (
-                    <View style={[styles.dropdownMenu, { backgroundColor: theme.card, borderColor: theme.border }]}>
-                      {decorationStyles.map((style) => (
-                        <TouchableOpacity
-                          key={style.decoration_style_id}
-                          style={[styles.dropdownItem, { borderColor: theme.border }]}
-                          onPress={() => {
-                            setSelectedDecoration(style.decoration_style_id);
-                            setDecorationDropdownOpen(false);
-                          }}
-                        >
-                          <Text style={[styles.dropdownItemText, { color: theme.text }]}>{style.style_name}</Text>
-                        </TouchableOpacity>
-                      ))}
-                    </View>
-                  )}
-                </View>
+                {/* Decoration Style Dropdown */}
+                <StyledDropdown
+                  label="Decoration Style"
+                  placeholder="Select decoration style"
+                  options={decorationStyles.map((s) => ({ id: s.decoration_style_id, name: s.style_name }))}
+                  selectedValue={selectedDecoration}
+                  onSelect={setSelectedDecoration}
+                  theme={theme}
+                  isOpen={decorationDropdownOpen}
+                  onToggle={setDecorationDropdownOpen}
+                />
 
-                {/* Lighting Style */}
-                <View style={styles.formGroup}>
-                  <Text style={[styles.formLabel, { color: theme.text }]}>Lighting Style (Optional)</Text>
-                  <TouchableOpacity
-                    style={[styles.formDropdown, { borderColor: theme.border }]}
-                    onPress={() => setLightingDropdownOpen(!lightingDropdownOpen)}
-                  >
-                    <Text style={[styles.dropdownPlaceholder, { color: selectedLighting ? theme.text : theme.textSecondary }]}>
-                      {selectedLighting ? getLightingName(selectedLighting) : "Select lighting style"}
-                    </Text>
-                    <Ionicons name={lightingDropdownOpen ? "chevron-up" : "chevron-down"} size={18} color={theme.textSecondary} />
-                  </TouchableOpacity>
-                  {lightingDropdownOpen && (
-                    <View style={[styles.dropdownMenu, { backgroundColor: theme.card, borderColor: theme.border }]}>
-                      {lightingStyles.map((style) => (
-                        <TouchableOpacity
-                          key={style.lighting_style_id}
-                          style={[styles.dropdownItem, { borderColor: theme.border }]}
-                          onPress={() => {
-                            setSelectedLighting(style.lighting_style_id);
-                            setLightingDropdownOpen(false);
-                          }}
-                        >
-                          <Text style={[styles.dropdownItemText, { color: theme.text }]}>{style.style_name}</Text>
-                        </TouchableOpacity>
-                      ))}
-                    </View>
-                  )}
-                </View>
+                {/* Lighting Style Dropdown */}
+                <StyledDropdown
+                  label="Lighting Style"
+                  placeholder="Select lighting style"
+                  options={lightingStyles.map((s) => ({ id: s.lighting_style_id, name: s.style_name }))}
+                  selectedValue={selectedLighting}
+                  onSelect={setSelectedLighting}
+                  theme={theme}
+                  isOpen={lightingDropdownOpen}
+                  onToggle={setLightingDropdownOpen}
+                />
 
-                {/* Category */}
-                <View style={styles.formGroup}>
-                  <Text style={[styles.formLabel, { color: theme.text }]}>Category (Optional)</Text>
-                  <TouchableOpacity
-                    style={[styles.formDropdown, { borderColor: theme.border }]}
-                    onPress={() => setCategoryDropdownOpen(!categoryDropdownOpen)}
-                  >
-                    <Text style={[styles.dropdownPlaceholder, { color: selectedCategory ? theme.text : theme.textSecondary }]}>
-                      {selectedCategory ? getCategoryName(selectedCategory) : "Select category"}
-                    </Text>
-                    <Ionicons name={categoryDropdownOpen ? "chevron-up" : "chevron-down"} size={18} color={theme.textSecondary} />
-                  </TouchableOpacity>
-                  {categoryDropdownOpen && (
-                    <View style={[styles.dropdownMenu, { backgroundColor: theme.card, borderColor: theme.border }]}>
-                      {eventCategories.map((category) => (
-                        <TouchableOpacity
-                          key={category.category_id}
-                          style={[styles.dropdownItem, { borderColor: theme.border }]}
-                          onPress={() => {
-                            setSelectedCategory(category.category_id);
-                            setCategoryDropdownOpen(false);
-                          }}
-                        >
-                          <Text style={[styles.dropdownItemText, { color: theme.text }]}>{category.category_name}</Text>
-                        </TouchableOpacity>
-                      ))}
-                    </View>
-                  )}
-                </View>
+                {/* Category Dropdown */}
+                <StyledDropdown
+                  label="Category"
+                  placeholder="Select category"
+                  options={eventCategories.map((c) => ({ id: c.category_id, name: c.category_name }))}
+                  selectedValue={selectedCategory}
+                  onSelect={setSelectedCategory}
+                  theme={theme}
+                  isOpen={categoryDropdownOpen}
+                  onToggle={setCategoryDropdownOpen}
+                />
 
-                {/* Thumbnail */}
-                <View style={styles.formGroup}>
-                  <Text style={[styles.formLabel, { color: theme.text }]}>Theme Thumbnail (Optional)</Text>
-                  <View style={styles.thumbnailSection}>
-                    {thumbnailUri ? (
-                      <>
-                        <TouchableOpacity onPress={() => handleOpenImageZoom(thumbnailUri, "add")}>
-                          <Image source={{ uri: thumbnailUri }} style={styles.thumbnailPreview} />
-                        </TouchableOpacity>
-                        <View style={{ flexDirection: "row", gap: 8 }}>
-                          <TouchableOpacity
-                            style={[styles.changeThumbnailButton, { flex: 1, borderColor: Palette.primary }]}
-                            onPress={pickImageForAddTheme}
-                          >
-                            <Ionicons name="cloud-upload" size={16} color={Palette.primary} />
-                            <Text style={{ color: Palette.primary, marginLeft: 4, fontWeight: "600", fontSize: 12 }}>Change</Text>
-                          </TouchableOpacity>
-                          <TouchableOpacity
-                            style={[styles.changeThumbnailButton, { flex: 1, borderColor: Palette.red }]}
-                            onPress={() => setThumbnailUri("")}
-                          >
-                            <Ionicons name="close" size={16} color={Palette.red} />
-                            <Text style={{ color: Palette.red, marginLeft: 4, fontWeight: "600", fontSize: 12 }}>Remove</Text>
-                          </TouchableOpacity>
-                        </View>
-                      </>
-                    ) : (
-                      <TouchableOpacity
-                        style={[styles.uploadThumbnailButton, { borderColor: theme.border }]}
-                        onPress={pickImageForAddTheme}
-                      >
-                        <Ionicons name="cloud-upload" size={32} color={Palette.primary} />
-                        <Text style={[styles.uploadButtonText, { color: theme.text, marginTop: 8 }]}>
-                          Tap to upload image
-                        </Text>
-                        <Text style={[styles.uploadButtonSubtext, { color: theme.textSecondary }]}>
-                          or paste URL below
-                        </Text>
-                      </TouchableOpacity>
-                    )}
-                  </View>
-                  <TextInput
-                    style={[styles.formInput, { color: theme.text, borderColor: theme.border, marginTop: 12 }]}
-                    placeholder="Or paste image URL (e.g., https://...)"
-                    placeholderTextColor={theme.textSecondary}
-                    value={thumbnailUri}
-                    onChangeText={setThumbnailUri}
-                  />
-                </View>
+                {/* Thumbnail Upload */}
+                <ThumbnailUpload
+                  label="Theme Thumbnail"
+                  thumbnailUri={thumbnailUri}
+                  onThumbnailChange={setThumbnailUri}
+                  onImageZoom={(uri) => handleOpenImageZoom(uri, "add")}
+                  theme={theme}
+                />
               </View>
 
               {/* Footer */}
@@ -1070,145 +942,50 @@ export default function ThemeManagement() {
                   </View>
                 ))}
 
-                {/* Decoration Style */}
-                <View style={styles.formGroup}>
-                  <Text style={[styles.formLabel, { color: theme.text }]}>Decoration Style (Optional)</Text>
-                  <TouchableOpacity
-                    style={[styles.formDropdown, { borderColor: theme.border }]}
-                    onPress={() => setEditDecorationDropdownOpen(!editDecorationDropdownOpen)}
-                  >
-                    <Text style={[styles.dropdownPlaceholder, { color: editSelectedDecoration ? theme.text : theme.textSecondary }]}>
-                      {editSelectedDecoration ? getDecorationName(editSelectedDecoration) : "Select decoration style"}
-                    </Text>
-                    <Ionicons name={editDecorationDropdownOpen ? "chevron-up" : "chevron-down"} size={18} color={theme.textSecondary} />
-                  </TouchableOpacity>
-                  {editDecorationDropdownOpen && (
-                    <View style={[styles.dropdownMenu, { backgroundColor: theme.card, borderColor: theme.border }]}>
-                      {decorationStyles.map((style) => (
-                        <TouchableOpacity
-                          key={style.decoration_style_id}
-                          style={[styles.dropdownItem, { borderColor: theme.border }]}
-                          onPress={() => {
-                            setEditSelectedDecoration(style.decoration_style_id);
-                            setEditDecorationDropdownOpen(false);
-                          }}
-                        >
-                          <Text style={[styles.dropdownItemText, { color: theme.text }]}>{style.style_name}</Text>
-                        </TouchableOpacity>
-                      ))}
-                    </View>
-                  )}
-                </View>
+                {/* Decoration Style Dropdown */}
+                <StyledDropdown
+                  label="Decoration Style"
+                  placeholder="Select decoration style"
+                  options={decorationStyles.map((s) => ({ id: s.decoration_style_id, name: s.style_name }))}
+                  selectedValue={editSelectedDecoration}
+                  onSelect={setEditSelectedDecoration}
+                  theme={theme}
+                  isOpen={editDecorationDropdownOpen}
+                  onToggle={setEditDecorationDropdownOpen}
+                />
 
-                {/* Lighting Style */}
-                <View style={styles.formGroup}>
-                  <Text style={[styles.formLabel, { color: theme.text }]}>Lighting Style (Optional)</Text>
-                  <TouchableOpacity
-                    style={[styles.formDropdown, { borderColor: theme.border }]}
-                    onPress={() => setEditLightingDropdownOpen(!editLightingDropdownOpen)}
-                  >
-                    <Text style={[styles.dropdownPlaceholder, { color: editSelectedLighting ? theme.text : theme.textSecondary }]}>
-                      {editSelectedLighting ? getLightingName(editSelectedLighting) : "Select lighting style"}
-                    </Text>
-                    <Ionicons name={editLightingDropdownOpen ? "chevron-up" : "chevron-down"} size={18} color={theme.textSecondary} />
-                  </TouchableOpacity>
-                  {editLightingDropdownOpen && (
-                    <View style={[styles.dropdownMenu, { backgroundColor: theme.card, borderColor: theme.border }]}>
-                      {lightingStyles.map((style) => (
-                        <TouchableOpacity
-                          key={style.lighting_style_id}
-                          style={[styles.dropdownItem, { borderColor: theme.border }]}
-                          onPress={() => {
-                            setEditSelectedLighting(style.lighting_style_id);
-                            setEditLightingDropdownOpen(false);
-                          }}
-                        >
-                          <Text style={[styles.dropdownItemText, { color: theme.text }]}>{style.style_name}</Text>
-                        </TouchableOpacity>
-                      ))}
-                    </View>
-                  )}
-                </View>
+                {/* Lighting Style Dropdown */}
+                <StyledDropdown
+                  label="Lighting Style"
+                  placeholder="Select lighting style"
+                  options={lightingStyles.map((s) => ({ id: s.lighting_style_id, name: s.style_name }))}
+                  selectedValue={editSelectedLighting}
+                  onSelect={setEditSelectedLighting}
+                  theme={theme}
+                  isOpen={editLightingDropdownOpen}
+                  onToggle={setEditLightingDropdownOpen}
+                />
 
-                {/* Category */}
-                <View style={styles.formGroup}>
-                  <Text style={[styles.formLabel, { color: theme.text }]}>Category (Optional)</Text>
-                  <TouchableOpacity
-                    style={[styles.formDropdown, { borderColor: theme.border }]}
-                    onPress={() => setEditCategoryDropdownOpen(!editCategoryDropdownOpen)}
-                  >
-                    <Text style={[styles.dropdownPlaceholder, { color: editSelectedCategory ? theme.text : theme.textSecondary }]}>
-                      {editSelectedCategory ? getCategoryName(editSelectedCategory) : "Select category"}
-                    </Text>
-                    <Ionicons name={editCategoryDropdownOpen ? "chevron-up" : "chevron-down"} size={18} color={theme.textSecondary} />
-                  </TouchableOpacity>
-                  {editCategoryDropdownOpen && (
-                    <View style={[styles.dropdownMenu, { backgroundColor: theme.card, borderColor: theme.border }]}>
-                      {eventCategories.map((category) => (
-                        <TouchableOpacity
-                          key={category.category_id}
-                          style={[styles.dropdownItem, { borderColor: theme.border }]}
-                          onPress={() => {
-                            setEditSelectedCategory(category.category_id);
-                            setEditCategoryDropdownOpen(false);
-                          }}
-                        >
-                          <Text style={[styles.dropdownItemText, { color: theme.text }]}>{category.category_name}</Text>
-                        </TouchableOpacity>
-                      ))}
-                    </View>
-                  )}
-                </View>
+                {/* Category Dropdown */}
+                <StyledDropdown
+                  label="Category"
+                  placeholder="Select category"
+                  options={eventCategories.map((c) => ({ id: c.category_id, name: c.category_name }))}
+                  selectedValue={editSelectedCategory}
+                  onSelect={setEditSelectedCategory}
+                  theme={theme}
+                  isOpen={editCategoryDropdownOpen}
+                  onToggle={setEditCategoryDropdownOpen}
+                />
 
-                {/* Thumbnail */}
-                <View style={styles.formGroup}>
-                  <Text style={[styles.formLabel, { color: theme.text }]}>Theme Thumbnail (Optional)</Text>
-                  <View style={styles.thumbnailSection}>
-                    {editThumbnailUri ? (
-                      <>
-                        <TouchableOpacity onPress={() => handleOpenImageZoom(editThumbnailUri, "edit")}>
-                          <Image source={{ uri: editThumbnailUri }} style={styles.thumbnailPreview} />
-                        </TouchableOpacity>
-                        <View style={{ flexDirection: "row", gap: 8 }}>
-                          <TouchableOpacity
-                            style={[styles.changeThumbnailButton, { flex: 1, borderColor: Palette.primary }]}
-                            onPress={pickImageForEditTheme}
-                          >
-                            <Ionicons name="cloud-upload" size={16} color={Palette.primary} />
-                            <Text style={{ color: Palette.primary, marginLeft: 4, fontWeight: "600", fontSize: 12 }}>Change</Text>
-                          </TouchableOpacity>
-                          <TouchableOpacity
-                            style={[styles.changeThumbnailButton, { flex: 1, borderColor: Palette.red }]}
-                            onPress={() => setEditThumbnailUri("")}
-                          >
-                            <Ionicons name="close" size={16} color={Palette.red} />
-                            <Text style={{ color: Palette.red, marginLeft: 4, fontWeight: "600", fontSize: 12 }}>Remove</Text>
-                          </TouchableOpacity>
-                        </View>
-                      </>
-                    ) : (
-                      <TouchableOpacity
-                        style={[styles.uploadThumbnailButton, { borderColor: theme.border }]}
-                        onPress={pickImageForEditTheme}
-                      >
-                        <Ionicons name="cloud-upload" size={32} color={Palette.primary} />
-                        <Text style={[styles.uploadButtonText, { color: theme.text, marginTop: 8 }]}>
-                          Tap to upload image
-                        </Text>
-                        <Text style={[styles.uploadButtonSubtext, { color: theme.textSecondary }]}>
-                          or paste URL below
-                        </Text>
-                      </TouchableOpacity>
-                    )}
-                  </View>
-                  <TextInput
-                    style={[styles.formInput, { color: theme.text, borderColor: theme.border, marginTop: 12 }]}
-                    placeholder="Or paste image URL (e.g., https://...)"
-                    placeholderTextColor={theme.textSecondary}
-                    value={editThumbnailUri}
-                    onChangeText={setEditThumbnailUri}
-                  />
-                </View>
+                {/* Thumbnail Upload */}
+                <ThumbnailUpload
+                  label="Theme Thumbnail"
+                  thumbnailUri={editThumbnailUri}
+                  onThumbnailChange={setEditThumbnailUri}
+                  onImageZoom={(uri) => handleOpenImageZoom(uri, "edit")}
+                  theme={theme}
+                />
               </View>
 
               <View style={styles.modalFooter}>
@@ -1427,24 +1204,6 @@ const styles = StyleSheet.create({
     fontWeight: "500",
     flex: 1,
   },
-  dropdownMenu: {
-    position: "absolute",
-    top: 70,
-    left: 0,
-    right: 0,
-    borderWidth: 1,
-    borderRadius: 8,
-    minWidth: 150,
-    zIndex: 1000,
-    maxHeight: 200,
-  },
-  dropdownItem: {
-    paddingHorizontal: 12,
-    paddingVertical: 12,
-  },
-  dropdownItemText: {
-    fontSize: 14,
-  },
   tableContainer: {
     borderRadius: 8,
     overflow: "hidden",
@@ -1586,19 +1345,6 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     gap: 12,
   },
-  formDropdown: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    borderWidth: 1,
-    borderRadius: 8,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    minHeight: 40,
-  },
-  dropdownPlaceholder: {
-    fontSize: 14,
-  },
   colorPickerRow: {
     flexDirection: "row",
     alignItems: "center",
@@ -1655,47 +1401,11 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: "600",
   },
-  thumbnailSection: {
-    alignItems: "center",
-    marginBottom: 12,
-    width: "100%",
-  },
-  thumbnailPreview: {
-    width: 120,
-    height: 120,
-    borderRadius: 8,
-    marginBottom: 12,
-  },
   detailsThumbnail: {
     width: "100%",
     height: 250,
     borderRadius: 8,
     marginBottom: 12,
-  },
-  uploadThumbnailButton: {
-    width: "100%",
-    height: 100,
-    borderRadius: 8,
-    borderWidth: 2,
-    borderStyle: "dashed",
-    justifyContent: "center",
-    alignItems: "center",
-  },
-  uploadButtonText: {
-    fontSize: 14,
-    marginTop: 8,
-  },
-  uploadButtonSubtext: {
-    fontSize: 12,
-    marginTop: 4,
-  },
-  changeThumbnailButton: {
-    flexDirection: "row",
-    alignItems: "center",
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-    borderRadius: 6,
-    borderWidth: 1,
   },
   detailGroup: {
     marginBottom: 20,
@@ -1760,6 +1470,9 @@ const styles = StyleSheet.create({
     height: 50,
     justifyContent: "center",
     alignItems: "center",
+  },
+  thumbnailSection: {
+    marginBottom: 16,
   },
 });
 
