@@ -4,16 +4,25 @@
 -- from the INSERT statement below (it may not exist yet in your current schema).
 -- ============================================
 
+-- ============================================
+-- FIX SCHEMA: Change auth_id from INTEGER to TEXT (for Supabase UUIDs)
+-- ============================================
+ALTER TABLE users 
+DROP CONSTRAINT IF EXISTS users_auth_id_key,
+ALTER COLUMN auth_id TYPE TEXT USING auth_id::TEXT,
+ADD UNIQUE (auth_id);
+
 -- Replace this with your actual auth UUID from Supabase Auth
 DO $$ 
 DECLARE
-  auth_uuid UUID := 'd7de9f47-020a-45e7-b15f-be143bf1f9ae'::UUID;
+  auth_uuid TEXT := 'd7de9f47-020a-45e7-b15f-be143bf1f9ae';
   user_id INTEGER;
 BEGIN
   -- Insert user into users table
   INSERT INTO users (
     auth_id,
     email,
+    password_hash,
     first_name,
     last_name,
     phone_number,
@@ -24,6 +33,7 @@ BEGIN
   ) VALUES (
     auth_uuid,
     'jbalejoshift0928@gmail.com',
+    'managed_by_supabase_auth',
     'Admin',
     'User',
     NULL,

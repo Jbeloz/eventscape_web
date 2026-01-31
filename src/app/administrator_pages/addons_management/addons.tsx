@@ -12,7 +12,7 @@ import AdminHeader from "../../../components/admin-header";
 import AdminSidebar from "../../../components/admin-sidebar";
 import { useTheme } from "../../../context/theme-context";
 
-export default function EventPackageManagement() {
+export default function AddOnsManagement() {
   const { isDarkMode, toggleTheme } = useTheme();
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const theme = isDarkMode ? Palette.dark : Palette.light;
@@ -28,19 +28,19 @@ export default function EventPackageManagement() {
           {/* Title Section */}
           <View style={styles.titleSection}>
             <View>
-              <Text style={[styles.pageTitle, { color: theme.text }]}>Event Package Management</Text>
-              <Text style={[styles.subtitle, { color: theme.textSecondary }]}>Manage event packages and offerings</Text>
+              <Text style={[styles.pageTitle, { color: theme.text }]}>Add Ons Management</Text>
+              <Text style={[styles.subtitle, { color: theme.textSecondary }]}>Manage add-ons and extras</Text>
             </View>
             <TouchableOpacity style={[styles.createButton, { backgroundColor: Palette.primary }]}>
               <Ionicons name="add" size={20} color={Palette.black} />
-              <Text style={styles.createButtonText}>Add Package</Text>
+              <Text style={styles.createButtonText}>Add Add-On</Text>
             </TouchableOpacity>
           </View>
 
           {/* Placeholder Content */}
           <View style={[styles.placeholderContainer, { backgroundColor: theme.card, borderColor: theme.border }]}>
-            <Ionicons name="cube" size={48} color={theme.textSecondary} />
-            <Text style={[styles.placeholderText, { color: theme.text }]}>Event Package Management</Text>
+            <Ionicons name="add-circle" size={48} color={theme.textSecondary} />
+            <Text style={[styles.placeholderText, { color: theme.text }]}>Add Ons Management</Text>
             <Text style={[styles.placeholderSubtext, { color: theme.textSecondary }]}>Coming soon...</Text>
           </View>
         </ScrollView>

@@ -45,7 +45,11 @@ export default function EditVenueNew() {
   // Step 1: Basic Info
   const [venueName, setVenueName] = useState('Grand Ballroom');
   const [venueType, setVenueType] = useState('Conference Hall');
-  const [location, setLocation] = useState('Business District, Chicago');
+  const [streetAddress, setStreetAddress] = useState('123 Business Street');
+  const [barangay, setBarangay] = useState('Barangay Business');
+  const [city, setCity] = useState('Manila');
+  const [province, setProvince] = useState('Metro Manila');
+  const [zipCode, setZipCode] = useState('1000');
   const [capacity, setCapacity] = useState('1500');
   const [showVenueTypeDropdown, setShowVenueTypeDropdown] = useState(false);
 
@@ -224,7 +228,7 @@ export default function EditVenueNew() {
 
   const canProceedToNextStep = () => {
     if (currentStep === 1) {
-      return venueName.trim() && venueType && location.trim() && capacity.trim();
+      return venueName.trim() && venueType && streetAddress.trim() && city.trim() && province.trim() && zipCode.trim() && capacity.trim();
     }
     if (currentStep === 2) {
       return length.trim() && width.trim();
@@ -237,7 +241,7 @@ export default function EditVenueNew() {
 
   const handleSaveChanges = () => {
     const allData = {
-      step1: { venueName, venueType, location, capacity },
+      step1: { venueName, venueType, streetAddress, barangay, city, province, zipCode, capacity },
       step2: {
         dimensions: { length, width, floorArea, ceilingHeight },
         specifications: { stageAvailable, acAvailable, parkingAvailable, handicappedAccess },
@@ -415,14 +419,65 @@ export default function EditVenueNew() {
                   </View>
                 )}
 
-                <Text style={[styles.label, { color: theme.text, marginTop: 16 }]}>Location *</Text>
+                <Text style={[styles.label, { color: theme.text, marginTop: 16 }]}>Street Address *</Text>
                 <TextInput
                   style={[styles.input, { color: theme.text, borderColor: theme.border }]}
-                  placeholder="Enter venue location"
+                  placeholder="Enter street address"
                   placeholderTextColor={theme.textSecondary}
-                  value={location}
-                  onChangeText={setLocation}
+                  value={streetAddress}
+                  onChangeText={setStreetAddress}
                 />
+
+                <Text style={[styles.label, { color: theme.text, marginTop: 16 }]}>Barangay</Text>
+                <TextInput
+                  style={[styles.input, { color: theme.text, borderColor: theme.border }]}
+                  placeholder="Enter barangay"
+                  placeholderTextColor={theme.textSecondary}
+                  value={barangay}
+                  onChangeText={setBarangay}
+                />
+
+                <View style={{ flexDirection: "row", gap: 12, marginTop: 16 }}>
+                  <View style={{ flex: 1 }}>
+                    <Text style={[styles.label, { color: theme.text }]}>City *</Text>
+                    <TextInput
+                      style={[styles.input, { color: theme.text, borderColor: theme.border }]}
+                      placeholder="Enter city"
+                      placeholderTextColor={theme.textSecondary}
+                      value={city}
+                      onChangeText={setCity}
+                    />
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={[styles.label, { color: theme.text }]}>Province *</Text>
+                    <TextInput
+                      style={[styles.input, { color: theme.text, borderColor: theme.border }]}
+                      placeholder="Enter province"
+                      placeholderTextColor={theme.textSecondary}
+                      value={province}
+                      onChangeText={setProvince}
+                    />
+                  </View>
+                </View>
+
+                <View style={{ flexDirection: "row", gap: 12, marginTop: 16 }}>
+                  <View style={{ flex: 0.5 }}>
+                    <Text style={[styles.label, { color: theme.text }]}>Zip Code *</Text>
+                    <TextInput
+                      style={[styles.input, { color: theme.text, borderColor: theme.border }]}
+                      placeholder="Enter zip code"
+                      placeholderTextColor={theme.textSecondary}
+                      value={zipCode}
+                      onChangeText={setZipCode}
+                    />
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={[styles.label, { color: theme.text }]}>Country</Text>
+                    <View style={[styles.input, { color: theme.text, borderColor: theme.border, justifyContent: "center" }]}>
+                      <Text style={{ color: theme.text, fontSize: 14 }}>Philippines</Text>
+                    </View>
+                  </View>
+                </View>
 
                 <Text style={[styles.label, { color: theme.text, marginTop: 16 }]}>Capacity *</Text>
                 <TextInput

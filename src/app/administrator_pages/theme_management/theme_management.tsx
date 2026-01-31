@@ -1,5 +1,4 @@
 import { Ionicons } from "@expo/vector-icons";
-import * as ImagePicker from "expo-image-picker";
 import { useEffect, useState } from "react";
 import {
   ActivityIndicator,
@@ -17,6 +16,8 @@ import {
 import { Palette } from "../../../../assets/colors/palette";
 import AdminHeader from "../../../components/admin-header";
 import AdminSidebar from "../../../components/admin-sidebar";
+import StyledDropdown from "../../../components/styled-dropdown";
+import ThumbnailUpload from "../../../components/thumbnail-upload";
 import { useTheme } from "../../../context/theme-context";
 import { supabase } from "../../../services/supabase";
 
@@ -35,28 +36,79 @@ export default function ThemeManagement() {
 
   // Add Theme Modal State
   const [themeName, setThemeName] = useState("");
-  const [themeStatus, setThemeStatus] = useState("Active");
   const [description, setDescription] = useState("");
   const [addColors, setAddColors] = useState<string[]>(["#6C9BCF"]); // [mainColor, secondaryColor?, ...accentColors]
   const [newAddColor, setNewAddColor] = useState("");
   const [thumbnailUri, setThumbnailUri] = useState("");
+  const [selectedDecoration, setSelectedDecoration] = useState<string | number>("");
+  const [selectedLighting, setSelectedLighting] = useState<string | number>("");
+  const [selectedCategory, setSelectedCategory] = useState<string | number>("");
+  const [decorationDropdownOpen, setDecorationDropdownOpen] = useState(false);
+  const [lightingDropdownOpen, setLightingDropdownOpen] = useState(false);
+  const [categoryDropdownOpen, setCategoryDropdownOpen] = useState(false);
 
   // Edit Theme Modal State
   const [editThemeName, setEditThemeName] = useState("");
-  const [editThemeStatus, setEditThemeStatus] = useState("Active");
   const [editDescription, setEditDescription] = useState("");
   const [editColors, setEditColors] = useState<string[]>([]);
   const [editThumbnailUri, setEditThumbnailUri] = useState("");
+  const [editSelectedDecoration, setEditSelectedDecoration] = useState<string | number>("");
+  const [editSelectedLighting, setEditSelectedLighting] = useState<string | number>("");
+  const [editSelectedCategory, setEditSelectedCategory] = useState<string | number>("");
+  const [editDecorationDropdownOpen, setEditDecorationDropdownOpen] = useState(false);
+  const [editLightingDropdownOpen, setEditLightingDropdownOpen] = useState(false);
+  const [editCategoryDropdownOpen, setEditCategoryDropdownOpen] = useState(false);
 
   const [themes, setThemes] = useState<any[]>([]);
+  const [decorationStyles, setDecorationStyles] = useState<any[]>([]);
+  const [lightingStyles, setLightingStyles] = useState<any[]>([]);
+  const [eventCategories, setEventCategories] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   const theme = isDarkMode ? Palette.dark : Palette.light;
 
-  useEffect(() => {
-    fetchThemes();
-  }, []);
+  const fetchDecorationStyles = async () => {
+    try {
+      const { data, error: err } = await supabase
+        .from("decoration_styles")
+        .select("decoration_style_id, style_name")
+        .order("style_name", { ascending: true });
+
+      if (err) throw err;
+      setDecorationStyles(data || []);
+    } catch (err: any) {
+      console.error("Error fetching decoration styles:", err.message);
+    }
+  };
+
+  const fetchLightingStyles = async () => {
+    try {
+      const { data, error: err } = await supabase
+        .from("lighting_styles")
+        .select("lighting_style_id, style_name")
+        .order("style_name", { ascending: true });
+
+      if (err) throw err;
+      setLightingStyles(data || []);
+    } catch (err: any) {
+      console.error("Error fetching lighting styles:", err.message);
+    }
+  };
+
+  const fetchEventCategories = async () => {
+    try {
+      const { data, error: err } = await supabase
+        .from("event_categories")
+        .select("category_id, category_name")
+        .order("category_name", { ascending: true });
+
+      if (err) throw err;
+      setEventCategories(data || []);
+    } catch (err: any) {
+      console.error("Error fetching event categories:", err.message);
+    }
+  };
 
   const fetchThemes = async () => {
     try {
@@ -112,6 +164,34 @@ export default function ThemeManagement() {
     }
   };
 
+  // Helper function to get decoration style name from ID
+  const getDecorationName = (decorationId: string | number) => {
+    if (!decorationId) return "";
+    const style = decorationStyles.find((s) => s.decoration_style_id == decorationId);
+    return style?.style_name || "";
+  };
+
+  // Helper function to get lighting style name from ID
+  const getLightingName = (lightingId: string | number) => {
+    if (!lightingId) return "";
+    const style = lightingStyles.find((s) => s.lighting_style_id == lightingId);
+    return style?.style_name || "";
+  };
+
+  // Helper function to get category name from ID
+  const getCategoryName = (categoryId: string | number) => {
+    if (!categoryId) return "";
+    const category = eventCategories.find((c) => c.category_id == categoryId);
+    return category?.category_name || "";
+  };
+
+  useEffect(() => {
+    fetchDecorationStyles();
+    fetchLightingStyles();
+    fetchEventCategories();
+    fetchThemes();
+  }, []);
+
   const handleAddTheme = async () => {
     if (themeName.trim()) {
       try {
@@ -127,7 +207,7 @@ export default function ThemeManagement() {
               theme_description: description,
               primary_color: mainColor,
               secondary_color: secondaryColor,
-              is_active: themeStatus === "Active",
+              is_active: true,
             },
           ])
           .select();
@@ -165,6 +245,48 @@ export default function ThemeManagement() {
           if (accentErr) throw accentErr;
         }
 
+        // Insert decoration style if selected
+        if (selectedDecoration && newTheme?.event_theme_id) {
+          const { error: decorErr } = await supabase
+            .from("event_theme_decorations")
+            .insert([
+              {
+                event_theme_id: newTheme.event_theme_id,
+                decoration_style_id: selectedDecoration,
+              },
+            ]);
+
+          if (decorErr) throw decorErr;
+        }
+
+        // Insert lighting style if selected
+        if (selectedLighting && newTheme?.event_theme_id) {
+          const { error: lightErr } = await supabase
+            .from("event_theme_lighting")
+            .insert([
+              {
+                event_theme_id: newTheme.event_theme_id,
+                lighting_style_id: selectedLighting,
+              },
+            ]);
+
+          if (lightErr) throw lightErr;
+        }
+
+        // Insert category if selected
+        if (selectedCategory && newTheme?.event_theme_id) {
+          const { error: catErr } = await supabase
+            .from("event_theme_categories")
+            .insert([
+              {
+                event_theme_id: newTheme.event_theme_id,
+                category_id: selectedCategory,
+              },
+            ]);
+
+          if (catErr) throw catErr;
+        }
+
         Alert.alert("Success", "Theme added successfully");
         resetAddModal();
         setShowAddModal(false);
@@ -179,45 +301,16 @@ export default function ThemeManagement() {
 
   const resetAddModal = () => {
     setThemeName("");
-    setThemeStatus("Active");
     setDescription("");
     setAddColors(["#6C9BCF"]);
     setNewAddColor("");
     setThumbnailUri("");
-  };
-
-  const pickImageForAddTheme = async () => {
-    try {
-      const result = await ImagePicker.launchImageLibraryAsync({
-        mediaTypes: ImagePicker.MediaTypeOptions.Images,
-        allowsEditing: true,
-        aspect: [16, 9],
-        quality: 0.8,
-      });
-
-      if (!result.canceled && result.assets[0]) {
-        setThumbnailUri(result.assets[0].uri);
-      }
-    } catch (error) {
-      Alert.alert("Error", "Failed to pick image");
-    }
-  };
-
-  const pickImageForEditTheme = async () => {
-    try {
-      const result = await ImagePicker.launchImageLibraryAsync({
-        mediaTypes: ImagePicker.MediaTypeOptions.Images,
-        allowsEditing: true,
-        aspect: [16, 9],
-        quality: 0.8,
-      });
-
-      if (!result.canceled && result.assets[0]) {
-        setEditThumbnailUri(result.assets[0].uri);
-      }
-    } catch (error) {
-      Alert.alert("Error", "Failed to pick image");
-    }
+    setSelectedDecoration("");
+    setSelectedLighting("");
+    setSelectedCategory("");
+    setDecorationDropdownOpen(false);
+    setLightingDropdownOpen(false);
+    setCategoryDropdownOpen(false);
   };
 
   const handleAddAccentColor = () => {
@@ -256,10 +349,15 @@ export default function ThemeManagement() {
   const handleEditTheme = (themeItem: any) => {
     setEditingTheme(themeItem);
     setEditThemeName(themeItem.name);
-    setEditThemeStatus(themeItem.status);
     setEditDescription(themeItem.description);
     setEditColors(themeItem.colors || ["#000000"]);
     setEditThumbnailUri(themeItem.thumbnail || "");
+    setEditSelectedDecoration("");
+    setEditSelectedLighting("");
+    setEditSelectedCategory("");
+    setEditDecorationDropdownOpen(false);
+    setEditLightingDropdownOpen(false);
+    setEditCategoryDropdownOpen(false);
     setShowEditModal(true);
   };
 
@@ -293,7 +391,7 @@ export default function ThemeManagement() {
             theme_description: editDescription,
             primary_color: mainColor,
             secondary_color: secondaryColor,
-            is_active: editThemeStatus === "Active",
+            is_active: editingTheme.status === "Active",
           })
           .eq("event_theme_id", editingTheme.id);
 
@@ -343,6 +441,72 @@ export default function ThemeManagement() {
             .insert(accentColorsData);
 
           if (accentErr) throw accentErr;
+        }
+
+        // Delete existing decorations and update
+        const { error: deleteDecoErr } = await supabase
+          .from("event_theme_decorations")
+          .delete()
+          .eq("event_theme_id", editingTheme.id);
+
+        if (deleteDecoErr) throw deleteDecoErr;
+
+        // Insert updated decoration style if selected
+        if (editSelectedDecoration) {
+          const { error: decorErr } = await supabase
+            .from("event_theme_decorations")
+            .insert([
+              {
+                event_theme_id: editingTheme.id,
+                decoration_style_id: editSelectedDecoration,
+              },
+            ]);
+
+          if (decorErr) throw decorErr;
+        }
+
+        // Delete existing lighting and update
+        const { error: deleteLightErr } = await supabase
+          .from("event_theme_lighting")
+          .delete()
+          .eq("event_theme_id", editingTheme.id);
+
+        if (deleteLightErr) throw deleteLightErr;
+
+        // Insert updated lighting style if selected
+        if (editSelectedLighting) {
+          const { error: lightErr } = await supabase
+            .from("event_theme_lighting")
+            .insert([
+              {
+                event_theme_id: editingTheme.id,
+                lighting_style_id: editSelectedLighting,
+              },
+            ]);
+
+          if (lightErr) throw lightErr;
+        }
+
+        // Delete existing categories and update
+        const { error: deleteCatErr } = await supabase
+          .from("event_theme_categories")
+          .delete()
+          .eq("event_theme_id", editingTheme.id);
+
+        if (deleteCatErr) throw deleteCatErr;
+
+        // Insert updated category if selected
+        if (editSelectedCategory) {
+          const { error: catErr } = await supabase
+            .from("event_theme_categories")
+            .insert([
+              {
+                event_theme_id: editingTheme.id,
+                category_id: editSelectedCategory,
+              },
+            ]);
+
+          if (catErr) throw catErr;
         }
 
         Alert.alert("Success", "Theme updated successfully");
@@ -569,21 +733,6 @@ export default function ThemeManagement() {
                   />
                 </View>
 
-                <View style={styles.formRow}>
-                  <View style={[styles.formGroup, { flex: 1, marginRight: 12 }]}>
-                    <Text style={[styles.formLabel, { color: theme.text }]}>Status</Text>
-                    <TouchableOpacity
-                      style={[styles.formDropdown, { borderColor: theme.border }]}
-                    >
-                      <Text style={[styles.dropdownPlaceholder, { color: theme.text }]}>
-                        {themeStatus}
-                      </Text>
-                      <Ionicons name="chevron-down" size={18} color={theme.textSecondary} />
-                    </TouchableOpacity>
-                  </View>
-                  <View style={[styles.formGroup, { flex: 1 }]} />
-                </View>
-
                 <View style={styles.formGroup}>
                   <Text style={[styles.formLabel, { color: theme.text }]}>Description</Text>
                   <TextInput
@@ -651,55 +800,50 @@ export default function ThemeManagement() {
                   </TouchableOpacity>
                 </View>
 
-                {/* Thumbnail */}
-                <View style={styles.formGroup}>
-                  <Text style={[styles.formLabel, { color: theme.text }]}>Theme Thumbnail (Optional)</Text>
-                  <View style={styles.thumbnailSection}>
-                    {thumbnailUri ? (
-                      <>
-                        <TouchableOpacity onPress={() => handleOpenImageZoom(thumbnailUri, "add")}>
-                          <Image source={{ uri: thumbnailUri }} style={styles.thumbnailPreview} />
-                        </TouchableOpacity>
-                        <View style={{ flexDirection: "row", gap: 8 }}>
-                          <TouchableOpacity
-                            style={[styles.changeThumbnailButton, { flex: 1, borderColor: Palette.primary }]}
-                            onPress={pickImageForAddTheme}
-                          >
-                            <Ionicons name="cloud-upload" size={16} color={Palette.primary} />
-                            <Text style={{ color: Palette.primary, marginLeft: 4, fontWeight: "600", fontSize: 12 }}>Change</Text>
-                          </TouchableOpacity>
-                          <TouchableOpacity
-                            style={[styles.changeThumbnailButton, { flex: 1, borderColor: Palette.red }]}
-                            onPress={() => setThumbnailUri("")}
-                          >
-                            <Ionicons name="close" size={16} color={Palette.red} />
-                            <Text style={{ color: Palette.red, marginLeft: 4, fontWeight: "600", fontSize: 12 }}>Remove</Text>
-                          </TouchableOpacity>
-                        </View>
-                      </>
-                    ) : (
-                      <TouchableOpacity
-                        style={[styles.uploadThumbnailButton, { borderColor: theme.border }]}
-                        onPress={pickImageForAddTheme}
-                      >
-                        <Ionicons name="cloud-upload" size={32} color={Palette.primary} />
-                        <Text style={[styles.uploadButtonText, { color: theme.text, marginTop: 8 }]}>
-                          Tap to upload image
-                        </Text>
-                        <Text style={[styles.uploadButtonSubtext, { color: theme.textSecondary }]}>
-                          or paste URL below
-                        </Text>
-                      </TouchableOpacity>
-                    )}
-                  </View>
-                  <TextInput
-                    style={[styles.formInput, { color: theme.text, borderColor: theme.border, marginTop: 12 }]}
-                    placeholder="Or paste image URL (e.g., https://...)"
-                    placeholderTextColor={theme.textSecondary}
-                    value={thumbnailUri}
-                    onChangeText={setThumbnailUri}
-                  />
-                </View>
+                {/* Decoration Style Dropdown */}
+                <StyledDropdown
+                  label="Decoration Style"
+                  placeholder="Select decoration style"
+                  options={decorationStyles.map((s) => ({ id: s.decoration_style_id, name: s.style_name }))}
+                  selectedValue={selectedDecoration}
+                  onSelect={setSelectedDecoration}
+                  theme={theme}
+                  isOpen={decorationDropdownOpen}
+                  onToggle={setDecorationDropdownOpen}
+                />
+
+                {/* Lighting Style Dropdown */}
+                <StyledDropdown
+                  label="Lighting Style"
+                  placeholder="Select lighting style"
+                  options={lightingStyles.map((s) => ({ id: s.lighting_style_id, name: s.style_name }))}
+                  selectedValue={selectedLighting}
+                  onSelect={setSelectedLighting}
+                  theme={theme}
+                  isOpen={lightingDropdownOpen}
+                  onToggle={setLightingDropdownOpen}
+                />
+
+                {/* Category Dropdown */}
+                <StyledDropdown
+                  label="Category"
+                  placeholder="Select category"
+                  options={eventCategories.map((c) => ({ id: c.category_id, name: c.category_name }))}
+                  selectedValue={selectedCategory}
+                  onSelect={setSelectedCategory}
+                  theme={theme}
+                  isOpen={categoryDropdownOpen}
+                  onToggle={setCategoryDropdownOpen}
+                />
+
+                {/* Thumbnail Upload */}
+                <ThumbnailUpload
+                  label="Theme Thumbnail"
+                  thumbnailUri={thumbnailUri}
+                  onThumbnailChange={setThumbnailUri}
+                  onImageZoom={(uri) => handleOpenImageZoom(uri, "add")}
+                  theme={theme}
+                />
               </View>
 
               {/* Footer */}
@@ -755,19 +899,6 @@ export default function ThemeManagement() {
                   />
                 </View>
 
-                <View style={styles.formRow}>
-                  <View style={[styles.formGroup, { flex: 1, marginRight: 12 }]}>
-                    <Text style={[styles.formLabel, { color: theme.text }]}>Status</Text>
-                    <TouchableOpacity style={[styles.formDropdown, { borderColor: theme.border }]}>
-                      <Text style={[styles.dropdownPlaceholder, { color: theme.text }]}>
-                        {editThemeStatus}
-                      </Text>
-                      <Ionicons name="chevron-down" size={18} color={theme.textSecondary} />
-                    </TouchableOpacity>
-                  </View>
-                  <View style={[styles.formGroup, { flex: 1 }]} />
-                </View>
-
                 <View style={styles.formGroup}>
                   <Text style={[styles.formLabel, { color: theme.text }]}>Description</Text>
                   <TextInput
@@ -811,55 +942,50 @@ export default function ThemeManagement() {
                   </View>
                 ))}
 
-                {/* Thumbnail */}
-                <View style={styles.formGroup}>
-                  <Text style={[styles.formLabel, { color: theme.text }]}>Theme Thumbnail (Optional)</Text>
-                  <View style={styles.thumbnailSection}>
-                    {editThumbnailUri ? (
-                      <>
-                        <TouchableOpacity onPress={() => handleOpenImageZoom(editThumbnailUri, "edit")}>
-                          <Image source={{ uri: editThumbnailUri }} style={styles.thumbnailPreview} />
-                        </TouchableOpacity>
-                        <View style={{ flexDirection: "row", gap: 8 }}>
-                          <TouchableOpacity
-                            style={[styles.changeThumbnailButton, { flex: 1, borderColor: Palette.primary }]}
-                            onPress={pickImageForEditTheme}
-                          >
-                            <Ionicons name="cloud-upload" size={16} color={Palette.primary} />
-                            <Text style={{ color: Palette.primary, marginLeft: 4, fontWeight: "600", fontSize: 12 }}>Change</Text>
-                          </TouchableOpacity>
-                          <TouchableOpacity
-                            style={[styles.changeThumbnailButton, { flex: 1, borderColor: Palette.red }]}
-                            onPress={() => setEditThumbnailUri("")}
-                          >
-                            <Ionicons name="close" size={16} color={Palette.red} />
-                            <Text style={{ color: Palette.red, marginLeft: 4, fontWeight: "600", fontSize: 12 }}>Remove</Text>
-                          </TouchableOpacity>
-                        </View>
-                      </>
-                    ) : (
-                      <TouchableOpacity
-                        style={[styles.uploadThumbnailButton, { borderColor: theme.border }]}
-                        onPress={pickImageForEditTheme}
-                      >
-                        <Ionicons name="cloud-upload" size={32} color={Palette.primary} />
-                        <Text style={[styles.uploadButtonText, { color: theme.text, marginTop: 8 }]}>
-                          Tap to upload image
-                        </Text>
-                        <Text style={[styles.uploadButtonSubtext, { color: theme.textSecondary }]}>
-                          or paste URL below
-                        </Text>
-                      </TouchableOpacity>
-                    )}
-                  </View>
-                  <TextInput
-                    style={[styles.formInput, { color: theme.text, borderColor: theme.border, marginTop: 12 }]}
-                    placeholder="Or paste image URL (e.g., https://...)"
-                    placeholderTextColor={theme.textSecondary}
-                    value={editThumbnailUri}
-                    onChangeText={setEditThumbnailUri}
-                  />
-                </View>
+                {/* Decoration Style Dropdown */}
+                <StyledDropdown
+                  label="Decoration Style"
+                  placeholder="Select decoration style"
+                  options={decorationStyles.map((s) => ({ id: s.decoration_style_id, name: s.style_name }))}
+                  selectedValue={editSelectedDecoration}
+                  onSelect={setEditSelectedDecoration}
+                  theme={theme}
+                  isOpen={editDecorationDropdownOpen}
+                  onToggle={setEditDecorationDropdownOpen}
+                />
+
+                {/* Lighting Style Dropdown */}
+                <StyledDropdown
+                  label="Lighting Style"
+                  placeholder="Select lighting style"
+                  options={lightingStyles.map((s) => ({ id: s.lighting_style_id, name: s.style_name }))}
+                  selectedValue={editSelectedLighting}
+                  onSelect={setEditSelectedLighting}
+                  theme={theme}
+                  isOpen={editLightingDropdownOpen}
+                  onToggle={setEditLightingDropdownOpen}
+                />
+
+                {/* Category Dropdown */}
+                <StyledDropdown
+                  label="Category"
+                  placeholder="Select category"
+                  options={eventCategories.map((c) => ({ id: c.category_id, name: c.category_name }))}
+                  selectedValue={editSelectedCategory}
+                  onSelect={setEditSelectedCategory}
+                  theme={theme}
+                  isOpen={editCategoryDropdownOpen}
+                  onToggle={setEditCategoryDropdownOpen}
+                />
+
+                {/* Thumbnail Upload */}
+                <ThumbnailUpload
+                  label="Theme Thumbnail"
+                  thumbnailUri={editThumbnailUri}
+                  onThumbnailChange={setEditThumbnailUri}
+                  onImageZoom={(uri) => handleOpenImageZoom(uri, "edit")}
+                  theme={theme}
+                />
               </View>
 
               <View style={styles.modalFooter}>
@@ -1078,22 +1204,6 @@ const styles = StyleSheet.create({
     fontWeight: "500",
     flex: 1,
   },
-  dropdownMenu: {
-    position: "absolute",
-    top: 45,
-    left: 0,
-    right: 0,
-    borderWidth: 1,
-    borderRadius: 8,
-    minWidth: 150,
-  },
-  dropdownItem: {
-    paddingHorizontal: 12,
-    paddingVertical: 12,
-  },
-  dropdownItemText: {
-    fontSize: 14,
-  },
   tableContainer: {
     borderRadius: 8,
     overflow: "hidden",
@@ -1235,19 +1345,6 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     gap: 12,
   },
-  formDropdown: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    borderWidth: 1,
-    borderRadius: 8,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    minHeight: 40,
-  },
-  dropdownPlaceholder: {
-    fontSize: 14,
-  },
   colorPickerRow: {
     flexDirection: "row",
     alignItems: "center",
@@ -1304,47 +1401,11 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: "600",
   },
-  thumbnailSection: {
-    alignItems: "center",
-    marginBottom: 12,
-    width: "100%",
-  },
-  thumbnailPreview: {
-    width: 120,
-    height: 120,
-    borderRadius: 8,
-    marginBottom: 12,
-  },
   detailsThumbnail: {
     width: "100%",
     height: 250,
     borderRadius: 8,
     marginBottom: 12,
-  },
-  uploadThumbnailButton: {
-    width: "100%",
-    height: 100,
-    borderRadius: 8,
-    borderWidth: 2,
-    borderStyle: "dashed",
-    justifyContent: "center",
-    alignItems: "center",
-  },
-  uploadButtonText: {
-    fontSize: 14,
-    marginTop: 8,
-  },
-  uploadButtonSubtext: {
-    fontSize: 12,
-    marginTop: 4,
-  },
-  changeThumbnailButton: {
-    flexDirection: "row",
-    alignItems: "center",
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-    borderRadius: 6,
-    borderWidth: 1,
   },
   detailGroup: {
     marginBottom: 20,
@@ -1409,6 +1470,9 @@ const styles = StyleSheet.create({
     height: 50,
     justifyContent: "center",
     alignItems: "center",
+  },
+  thumbnailSection: {
+    marginBottom: 16,
   },
 });
 
