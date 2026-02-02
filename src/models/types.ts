@@ -131,6 +131,7 @@ export interface Venue {
   is_active: boolean;
   created_at: string;
   updated_at: string;
+  venue_images?: VenueImage[];
 }
 
 // Venue Type

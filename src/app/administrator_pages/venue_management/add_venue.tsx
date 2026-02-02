@@ -1,20 +1,23 @@
 import { Ionicons } from "@expo/vector-icons";
+import * as ImagePicker from "expo-image-picker";
 import { useRouter } from "expo-router";
 import { useEffect, useRef, useState } from "react";
 import {
-    Alert,
-    Modal,
-    ScrollView,
-    StyleSheet,
-    Text,
-    TextInput,
-    TouchableOpacity,
-    View
+  Alert,
+  Image,
+  Modal,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View
 } from "react-native";
 import { Palette } from "../../../../assets/colors/palette";
 import AdminHeader from "../../../components/admin-header";
 import AdminSidebar from "../../../components/admin-sidebar";
 import ValidationError from "../../../components/validation-error";
+import VenueFloorPlanVisualizer from "../../../components/venue-floor-plan-visualizer";
 import { useTheme } from "../../../context/theme-context";
 import { useAuth } from "../../../hooks/use-auth";
 import { supabase } from "../../../services/supabase";
@@ -29,6 +32,7 @@ export default function AddVenue() {
   const [currentUserId, setCurrentUserId] = useState<number | null>(null);
   const theme = isDarkMode ? Palette.dark : Palette.light;
   const scrollViewRef = useRef<ScrollView>(null);
+  const floorPlanVisualizerRef = useRef<any>(null);
 
   // Stepper State
   const [currentStep, setCurrentStep] = useState(1);
@@ -47,7 +51,7 @@ export default function AddVenue() {
 
   // Form State - Step 1: Basic Info
   const [name, setName] = useState("");
-  const [type, setType] = useState("");
+  const [type, setType] = useState(""); // Stores venue_type_id (not the name)
   const [streetAddress, setStreetAddress] = useState("");
   const [barangay, setBarangay] = useState("");
   const [city, setCity] = useState("");
@@ -67,8 +71,18 @@ export default function AddVenue() {
   const [parkingAvailable, setParkingAvailable] = useState(false);
   const [handicappedAccess, setHandicappedAccess] = useState(false);
 
-  // Venue Specifications as text field
-  const [venueSpecifications, setVenueSpecifications] = useState("");
+  // Venue Specifications as array of objects
+  interface VenueSpecification {
+    id: number;
+    name: string;
+    value: string;
+    notes: string;
+  }
+  const [venueSpecifications, setVenueSpecifications] = useState<VenueSpecification[]>([]);
+  const [customSpecificationInput, setCustomSpecificationInput] = useState("");
+  const [specValueInput, setSpecValueInput] = useState("");
+  const [specNotesInput, setSpecNotesInput] = useState("");
+  const [nextSpecId, setNextSpecId] = useState(1);
 
   // Door Placement
   interface Door {
@@ -79,18 +93,18 @@ export default function AddVenue() {
     offsetFromCorner: string;
     swingDirection: string;
     hingePosition: string;
+    wall: string; // "Top", "Bottom", "Left", "Right"
   }
   const [doors, setDoors] = useState<Door[]>([]);
   const [nextDoorId, setNextDoorId] = useState(1);
-  const [doorsError, setDoorsError] = useState<string>("");
+  const [openDropdowns, setOpenDropdowns] = useState<{ [key: string]: boolean }>({});
 
   // Rules & Regulations
   const [rulesAndRegulations, setRulesAndRegulations] = useState("");
 
   // Form State - Step 3: Media & Rules
   const [galleryImages, setGalleryImages] = useState<string[]>([]);
-  const [imageUrlInput, setImageUrlInput] = useState("");
-  const [floorPlanUrl, setFloorPlanUrl] = useState("");
+  const [thumbnailIndex, setThumbnailIndex] = useState<number>(0);
   const [selectedEventTypes, setSelectedEventTypes] = useState<string[]>([]);
   const [eventCategories, setEventCategories] = useState<any[]>([]);
   const [eventCategoriesLoading, setEventCategoriesLoading] = useState(true);
@@ -100,7 +114,6 @@ export default function AddVenue() {
   const [minimumHours, setMinimumHours] = useState("");
   const [weekendRate, setWeekendRate] = useState("");
   const [holidayRate, setHolidayRate] = useState("");
-  const [overtimeRate, setOvertimeRate] = useState("");
   const [pricingNotes, setPricingNotes] = useState("");
   const [email, setEmail] = useState("");
   const [phone, setPhone] = useState("");
@@ -116,6 +129,30 @@ export default function AddVenue() {
   const [packages, setPackages] = useState<PricingPackage[]>([]);
   const [nextPackageId, setNextPackageId] = useState(1);
 
+  // Form State - Seasonal Pricing
+  interface SeasonalPrice {
+    id: number;
+    seasonName: string;
+    startDate: string;
+    endDate: string;
+    rateType: string;
+    modifierType: string;
+    modifierValue: string;
+  }
+  const [seasonalPrices, setSeasonalPrices] = useState<SeasonalPrice[]>([]);
+  const [nextSeasonalPriceId, setNextSeasonalPriceId] = useState(1);
+
+  // Form State - Overtime Rates
+  interface OvertimeRate {
+    id: number;
+    rateType: string;
+    pricePerHour: string;
+    startHour: string;
+    endHour: string;
+  }
+  const [overtimeRates, setOvertimeRates] = useState<OvertimeRate[]>([]);
+  const [nextOvertimeRateId, setNextOvertimeRateId] = useState(1);
+
   // Legacy rate type (kept for backward compatibility if needed)
   const [rateType, setRateType] = useState("Hourly");
   const [baseRate, setBaseRate] = useState("");
@@ -126,7 +163,6 @@ export default function AddVenue() {
   const [facilities, setFacilities] = useState<string[]>([]);
   const [customFacilityInput, setCustomFacilityInput] = useState("");
   const [showBackConfirmModal, setShowBackConfirmModal] = useState(false);
-  const defaultFacilities = ["Tables & Chairs", "Sound System", "Projector", "Wi-Fi", "Stage", "Lighting System", "Kitchen", "Catering Service"];
 
   // Validation Error States
   const [nameError, setNameError] = useState<ValidationErrorType>({ field: "", message: "", isValid: true });
@@ -152,12 +188,18 @@ export default function AddVenue() {
   const [minimumHoursError, setMinimumHoursError] = useState<ValidationErrorType>({ field: "", message: "", isValid: true });
   const [weekendRateError, setWeekendRateError] = useState<ValidationErrorType>({ field: "", message: "", isValid: true });
   const [holidayRateError, setHolidayRateError] = useState<ValidationErrorType>({ field: "", message: "", isValid: true });
-  const [overtimeRateError, setOvertimeRateError] = useState<ValidationErrorType>({ field: "", message: "", isValid: true });
   const [packagesError, setPackagesError] = useState<ValidationErrorType>({ field: "", message: "", isValid: true });
+  const [doorsError, setDoorsError] = useState<ValidationErrorType>({ field: "", message: "", isValid: true });
   const [capacityWarning, setCapacityWarning] = useState<string>("");
   const [isSaving, setIsSaving] = useState(false);
 
   const steps = ["Basic Info", "Technical Specs", "Media & Rules", "Pricing & Contact"];
+
+  // Door enum constants
+  const DOOR_TYPES = ["Single", "Double"];
+  const DOOR_SWING_DIRECTIONS = ["Inward", "Outward"];
+  const DOOR_HINGE_POSITIONS = ["Left", "Right"];
+  const DOOR_WALLS = ["Top", "Bottom", "Left", "Right"];
 
   // Load venue administrators and types on component mount
   useEffect(() => {
@@ -351,6 +393,22 @@ export default function AddVenue() {
     }
   };
 
+  const addCustomSpecification = () => {
+    if (customSpecificationInput.trim() && specValueInput.trim() && !venueSpecifications.some(s => s.name === customSpecificationInput)) {
+      setVenueSpecifications([...venueSpecifications, {
+        id: nextSpecId,
+        name: customSpecificationInput,
+        value: specValueInput,
+        notes: specNotesInput,
+      }]);
+      setNextSpecId(nextSpecId + 1);
+      setCustomSpecificationInput("");
+      setSpecValueInput("");
+      setSpecNotesInput("");
+      setVenueSpecificationsError({ field: "", message: "", isValid: true });
+    }
+  };
+
   const addPricingPackage = () => {
     setPackages([
       ...packages,
@@ -377,6 +435,60 @@ export default function AddVenue() {
     setPackages(packages.filter((pkg) => pkg.id !== id));
   };
 
+  const addSeasonalPrice = () => {
+    setSeasonalPrices([
+      ...seasonalPrices,
+      {
+        id: nextSeasonalPriceId,
+        seasonName: "",
+        startDate: "",
+        endDate: "",
+        rateType: "Hourly",
+        modifierType: "Fixed",
+        modifierValue: "",
+      },
+    ]);
+    setNextSeasonalPriceId(nextSeasonalPriceId + 1);
+  };
+
+  const updateSeasonalPrice = (id: number, field: string, value: string) => {
+    setSeasonalPrices(
+      seasonalPrices.map((sp) =>
+        sp.id === id ? { ...sp, [field]: value } : sp
+      )
+    );
+  };
+
+  const deleteSeasonalPrice = (id: number) => {
+    setSeasonalPrices(seasonalPrices.filter((sp) => sp.id !== id));
+  };
+
+  const addOvertimeRate = () => {
+    setOvertimeRates([
+      ...overtimeRates,
+      {
+        id: nextOvertimeRateId,
+        rateType: "Hourly",
+        pricePerHour: "",
+        startHour: "",
+        endHour: "",
+      },
+    ]);
+    setNextOvertimeRateId(nextOvertimeRateId + 1);
+  };
+
+  const updateOvertimeRate = (id: number, field: string, value: string) => {
+    setOvertimeRates(
+      overtimeRates.map((or) =>
+        or.id === id ? { ...or, [field]: value } : or
+      )
+    );
+  };
+
+  const deleteOvertimeRate = (id: number) => {
+    setOvertimeRates(overtimeRates.filter((or) => or.id !== id));
+  };
+
   const validateEmail = (email: string) => {
     return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
   };
@@ -386,7 +498,7 @@ export default function AddVenue() {
       case 1:
         return selectedVenueAdmin && name && type && streetAddress && barangay && city && province && zipCode && capacity;
       case 2:
-        return length && width && floorArea && venueSpecifications && selectedEventTypes.length > 0;
+        return length && width && floorArea && venueSpecifications.length > 0 && selectedEventTypes.length > 0;
       case 3:
         return galleryImages.length > 0 && rulesAndRegulations.trim() !== "" && facilities.length > 0;
       case 4:
@@ -411,7 +523,7 @@ export default function AddVenue() {
             .from('venues')
             .select('venue_id')
             .eq('venue_name', name)
-            .single();
+            .maybeSingle();
           
           if (!checkError && existingVenue) {
             console.log("⚠️ Venue name already exists");
@@ -468,30 +580,59 @@ export default function AddVenue() {
       isStepValid = nameValid && typeValid && streetValid && barangayValid && cityValid && provinceValid && zipValid && capacityValid;
     } else if (currentStep === 2) {
       // Technical Specs validation
-      const lengthValid = validateRequired(length);
-      const widthValid = validateRequired(width);
-      const floorValid = validateRequired(floorArea);
-      const specsValid = validateRequired(venueSpecifications);
+      const specsValid = venueSpecifications.length > 0;
       const eventTypesValid = selectedEventTypes.length > 0;
       
-      setLengthError(lengthValid ? { field: "length", message: "", isValid: true } : { field: "length", message: VALIDATION_MESSAGES.required("Length"), isValid: false });
-      setWidthError(widthValid ? { field: "width", message: "", isValid: true } : { field: "width", message: VALIDATION_MESSAGES.required("Width"), isValid: false });
-      setFloorAreaError(floorValid ? { field: "floorArea", message: "", isValid: true } : { field: "floorArea", message: VALIDATION_MESSAGES.required("Floor area"), isValid: false });
-      setVenueSpecificationsError(specsValid ? { field: "venueSpecifications", message: "", isValid: true } : { field: "venueSpecifications", message: VALIDATION_MESSAGES.required("Venue specifications"), isValid: false });
-      setEventTypesError(eventTypesValid ? { field: "eventTypes", message: "", isValid: true } : { field: "eventTypes", message: "Please select at least one event type", isValid: false });
+      // Validate doors: must have at least one, and all required fields must be filled
+      let doorsValid = doors.length > 0;
+      let doorErrorMessage = "";
+      if (doorsValid) {
+        for (let i = 0; i < doors.length; i++) {
+          const door = doors[i];
+          if (!door.width || !door.height || !door.offsetFromCorner || !door.wall) {
+            doorsValid = false;
+            doorErrorMessage = `Door ${i + 1}: All fields including Wall are required`;
+            break;
+          }
+        }
+      } else {
+        doorErrorMessage = "At least one door placement is required";
+      }
       
-      isStepValid = lengthValid && widthValid && floorValid && specsValid && eventTypesValid;
+      setVenueSpecificationsError(specsValid ? { field: "venueSpecifications", message: "", isValid: true } : { field: "venueSpecifications", message: "Please add at least one venue specification", isValid: false });
+      setEventTypesError(eventTypesValid ? { field: "eventTypes", message: "", isValid: true } : { field: "eventTypes", message: "Please select at least one event type", isValid: false });
+      setDoorsError(doorsValid ? { field: "doors", message: "", isValid: true } : { field: "doors", message: doorErrorMessage, isValid: false });
+      
+      isStepValid = specsValid && eventTypesValid && doorsValid;
     } else if (currentStep === 3) {
       // Media & Rules validation
       const galleryValid = galleryImages.length > 0;
       const rulesValid = validateRequired(rulesAndRegulations);
       const facilitiesValid = facilities.length > 0;
+      // Venue measurement validation: length and width are required
+      const floorPlanValid = validateRequired(length) && validateRequired(width);
       
       setGalleryImagesError(galleryValid ? { field: "galleryImages", message: "", isValid: true } : { field: "galleryImages", message: "At least one gallery image is required", isValid: false });
       setRulesAndRegulationsError(rulesValid ? { field: "rulesAndRegulations", message: "", isValid: true } : { field: "rulesAndRegulations", message: "Rules and regulations are required", isValid: false });
       setFacilitiesError(facilitiesValid ? { field: "facilities", message: "", isValid: true } : { field: "facilities", message: "At least one facility is required", isValid: false });
       
-      isStepValid = galleryValid && rulesValid && facilitiesValid;
+      // Validate floor plan dimensions
+      if (!floorPlanValid) {
+        if (!validateRequired(length) || !validateRequired(width)) {
+          setLengthError(!validateRequired(length) ? { field: "length", message: "Length is required", isValid: false } : { field: "length", message: "", isValid: true });
+          setWidthError(!validateRequired(width) ? { field: "width", message: "Width is required", isValid: false } : { field: "width", message: "", isValid: true });
+        } else {
+          setLengthError({ field: "length", message: "", isValid: true });
+          setWidthError({ field: "width", message: "", isValid: true });
+        }
+        setFloorAreaError({ field: "floorArea", message: "", isValid: true });
+      } else {
+        setLengthError({ field: "length", message: "", isValid: true });
+        setWidthError({ field: "width", message: "", isValid: true });
+        setFloorAreaError({ field: "floorArea", message: "", isValid: true });
+      }
+      
+      isStepValid = galleryValid && rulesValid && facilitiesValid && floorPlanValid;
     }
     
     if (isStepValid) {
@@ -507,6 +648,86 @@ export default function AddVenue() {
     }
   };
 
+  const uploadFloorPlanImageToCloudinary = async (): Promise<string | null> => {
+    try {
+      console.log("🖼️ Getting floor plan canvas image...");
+      // Get canvas blob from visualizer
+      const blob = await floorPlanVisualizerRef.current?.getCanvasImage();
+      if (!blob) {
+        console.log("ℹ️ Floor plan image capture not available in React Native - will save as pending-upload");
+        return null;
+      }
+      console.log("✅ Canvas blob obtained, size:", blob.size, "bytes");
+
+      // Create FormData for Cloudinary upload
+      const formData = new FormData();
+      formData.append('file', blob);
+      formData.append('upload_preset', process.env.EXPO_PUBLIC_CLOUDINARY_PRESET || '');
+      formData.append('folder', 'eventscape/floor-plans');
+
+      console.log("📤 Uploading to Cloudinary with preset:", process.env.EXPO_PUBLIC_CLOUDINARY_PRESET);
+      // Upload to Cloudinary
+      const cloudinaryUrl = `https://api.cloudinary.com/v1_1/${process.env.EXPO_PUBLIC_CLOUDINARY_NAME}/image/upload`;
+      const response = await fetch(cloudinaryUrl, {
+        method: 'POST',
+        body: formData,
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error("❌ Cloudinary API error:", response.status, errorText);
+        throw new Error(`Cloudinary upload failed: ${response.statusText}`);
+      }
+
+      const data = await response.json();
+      console.log("✅ Floor plan image uploaded to Cloudinary:", data.secure_url);
+      return data.secure_url || data.url;
+    } catch (error) {
+      console.error("❌ Error uploading floor plan image:", error);
+      return null;
+    }
+  };
+
+  const uploadGalleryImageToCloudinary = async (imageUri: string): Promise<string | null> => {
+    try {
+      console.log("🖼️ Uploading gallery image to Cloudinary:", imageUri.substring(0, 50));
+      
+      // Convert URI to blob
+      const response = await fetch(imageUri);
+      const blob = await response.blob();
+      
+      console.log("✅ Blob obtained, size:", blob.size, "bytes");
+
+      // Create FormData for Cloudinary upload
+      const formData = new FormData();
+      formData.append('file', blob);
+      formData.append('upload_preset', process.env.EXPO_PUBLIC_CLOUDINARY_PRESET || '');
+      formData.append('folder', 'eventscape/gallery');
+
+      console.log("📤 Uploading to Cloudinary with preset:", process.env.EXPO_PUBLIC_CLOUDINARY_PRESET);
+      
+      // Upload to Cloudinary
+      const cloudinaryUrl = `https://api.cloudinary.com/v1_1/${process.env.EXPO_PUBLIC_CLOUDINARY_NAME}/image/upload`;
+      const uploadResponse = await fetch(cloudinaryUrl, {
+        method: 'POST',
+        body: formData,
+      });
+
+      if (!uploadResponse.ok) {
+        const errorText = await uploadResponse.text();
+        console.error("❌ Cloudinary API error:", uploadResponse.status, errorText);
+        throw new Error(`Cloudinary upload failed: ${uploadResponse.statusText}`);
+      }
+
+      const data = await uploadResponse.json();
+      console.log("✅ Gallery image uploaded to Cloudinary:", data.secure_url);
+      return data.secure_url || data.url;
+    } catch (error) {
+      console.error("❌ Error uploading gallery image:", error);
+      return null;
+    }
+  };
+
   const handleSaveVenue = async () => {
     console.log("🚀 handleSaveVenue() called");
     
@@ -518,7 +739,7 @@ export default function AddVenue() {
           .from('venues')
           .select('venue_id')
           .eq('venue_name', name)
-          .single();
+          .maybeSingle();
         
         if (!checkError && existingVenue) {
           console.log("⚠️ Venue name already exists");
@@ -610,9 +831,9 @@ export default function AddVenue() {
       : { field: "eventTypes", message: "Please select at least one event type", isValid: false };
     setEventTypesError(eventTypesValidation);
 
-    const venueSpecificationsValidation: ValidationErrorType = validateRequired(venueSpecifications)
+    const venueSpecificationsValidation: ValidationErrorType = venueSpecifications.length > 0
       ? { field: "venueSpecifications", message: "", isValid: true }
-      : { field: "venueSpecifications", message: VALIDATION_MESSAGES.required("Venue specifications"), isValid: false };
+      : { field: "venueSpecifications", message: "Please add at least one venue specification", isValid: false };
     setVenueSpecificationsError(venueSpecificationsValidation);
 
     const hourlyRateValidation: ValidationErrorType = validateRequired(hourlyRate)
@@ -634,11 +855,6 @@ export default function AddVenue() {
       ? { field: "holidayRate", message: "", isValid: true }
       : { field: "holidayRate", message: "Holiday rate must be a valid non-negative number", isValid: false };
     setHolidayRateError(holidayRateValidation);
-
-    const overtimeRateValidation: ValidationErrorType = validateRequired(overtimeRate) && (overtimeRate && parseFloat(overtimeRate) >= 0)
-      ? { field: "overtimeRate", message: "", isValid: true }
-      : { field: "overtimeRate", message: "Overtime rate must be a valid non-negative number", isValid: false };
-    setOvertimeRateError(overtimeRateValidation);
 
     // Email and phone: At least ONE must be provided
     const hasEmail = validateRequired(email);
@@ -683,15 +899,15 @@ export default function AddVenue() {
     if (doors.length > 0) {
       for (let i = 0; i < doors.length; i++) {
         const door = doors[i];
-        if (!door.width || !door.height || !door.offsetFromCorner) {
+        if (!door.width || !door.height || !door.offsetFromCorner || !door.wall) {
           doorsValid = false;
-          setDoorsError(`Door ${i + 1}: Width, Height, and Offset From Corner are required.`);
+          setDoorsError({ field: "doors", message: `Door ${i + 1}: All fields including Wall are required.`, isValid: false });
           break;
         }
       }
     }
     if (doorsValid) {
-      setDoorsError("");
+      setDoorsError({ field: "", message: "", isValid: true });
     }
 
     // Check if all validations passed
@@ -700,7 +916,7 @@ export default function AddVenue() {
       capacityValidation.isValid && lengthValidation.isValid && widthValidation.isValid && floorAreaValidation.isValid &&
       galleryImagesValidation.isValid && eventTypesValidation.isValid && venueSpecificationsValidation.isValid &&
       hourlyRateValidation.isValid && minimumHoursValidation.isValid && weekendRateValidation.isValid &&
-      holidayRateValidation.isValid && overtimeRateValidation.isValid && contactValidation.isValid &&
+      holidayRateValidation.isValid && contactValidation.isValid &&
       rulesValidation.isValid && facilitiesValidation.isValid && packagesValidation.isValid && doorsValid;
 
     if (!allValidationsPass) {
@@ -724,7 +940,6 @@ export default function AddVenue() {
         minimumHours: minimumHoursValidation.isValid,
         weekendRate: weekendRateValidation.isValid,
         holidayRate: holidayRateValidation.isValid,
-        overtimeRate: overtimeRateValidation.isValid,
         email: emailValidation.isValid,
         phone: phoneValidation.isValid,
         rules: rulesValidation.isValid,
@@ -808,28 +1023,7 @@ export default function AddVenue() {
       // ===== STEP 3: INSERT RELATED DATA (CHILDREN) =====
       // Each insert is wrapped in its own try-catch so one failure doesn't stop the others
       try {
-        // 3A. Save Venue Specifications (Dimensions)
-        try {
-          const specsData = [
-            { venue_id: venueId, specification_name: 'Length', specification_value: length },
-            { venue_id: venueId, specification_name: 'Width', specification_value: width },
-            { venue_id: venueId, specification_name: 'Floor Area', specification_value: floorArea },
-            { venue_id: venueId, specification_name: 'Ceiling Height', specification_value: ceilingHeight || 'N/A' },
-            { venue_id: venueId, specification_name: 'Specifications', specification_value: venueSpecifications },
-          ];
-          console.log("📐 Inserting specifications:", specsData);
-          const { error: specsError } = await supabase.from('venue_specifications').insert(specsData);
-          if (specsError) {
-            console.error("❌ Error saving specifications:", specsError);
-            console.log("Specs data that failed:", specsData);
-          } else {
-            console.log("✅ Venue specifications saved");
-          }
-        } catch (specsErr: any) {
-          console.error("❌ Exception in specifications save:", specsErr);
-        }
-
-        // 3B. Save Doors
+        // 3A. Save Doors
         try {
           if (doors.length > 0) {
             const doorsData = doors.map((door) => {
@@ -848,6 +1042,7 @@ export default function AddVenue() {
                 width: parseFloat(door.width),
                 height: parseFloat(door.height),
                 door_offset: parseFloat(door.offsetFromCorner),
+                wall: door.wall,
                 corner_position: door.hingePosition,
                 swing_direction: door.swingDirection,
                 hinge_position: door.hingePosition,
@@ -868,7 +1063,7 @@ export default function AddVenue() {
           console.error("❌ Exception in doors save:", doorsErr);
         }
 
-        // 3C. Save Allowed Event Types
+        // 3B. Save Allowed Event Types
         try {
           if (selectedEventTypes.length > 0) {
             console.log("🔍 Raw selectedEventTypes:", selectedEventTypes);
@@ -908,57 +1103,84 @@ export default function AddVenue() {
           console.error("❌ Exception in event types save:", eventTypesErr);
         }
 
-        // 3D. Save Gallery Images
+        // 3C. Save Gallery Images
         try {
           if (galleryImages.length > 0) {
-            const imagesData = galleryImages.map((imagePath, index) => ({
+            console.log("📤 Starting gallery image uploads to Cloudinary...");
+            
+            // Upload all gallery images to Cloudinary first
+            const uploadedImageUrls: string[] = [];
+            for (let i = 0; i < galleryImages.length; i++) {
+              try {
+                console.log(`⏳ Uploading image ${i + 1}/${galleryImages.length}...`);
+                const uploadedUrl = await uploadGalleryImageToCloudinary(galleryImages[i]);
+                if (uploadedUrl) {
+                  uploadedImageUrls.push(uploadedUrl);
+                  console.log(`✅ Image ${i + 1} uploaded: ${uploadedUrl}`);
+                } else {
+                  console.error(`❌ Failed to upload image ${i + 1}`);
+                  Alert.alert("Error", `Failed to upload image ${i + 1}. Please try again.`);
+                  return;
+                }
+              } catch (uploadError) {
+                console.error(`❌ Error uploading image ${i + 1}:`, uploadError);
+                Alert.alert("Error", `Failed to upload image ${i + 1}: ${uploadError}`);
+                return;
+              }
+            }
+            
+            // Now save the uploaded URLs to database
+            const imagesData = uploadedImageUrls.map((imagePath, index) => ({
               venue_id: venueId,
               image_path: imagePath,
-              is_thumbnail: index === 0, // First image is thumbnail
+              is_thumbnail: index === thumbnailIndex,
             }));
-            console.log("🖼️ Inserting images:", imagesData);
+            console.log("🖼️ Inserting images to database:", imagesData);
             const { error: imagesError } = await supabase.from('venue_images').insert(imagesData);
             if (imagesError) {
               console.error("❌ Error saving images:", imagesError);
               console.log("Images data that failed:", imagesData);
+              Alert.alert("Error", "Failed to save images to database");
+              return;
             } else {
-              console.log("✅ Venue images saved");
+              console.log("✅ Venue images saved successfully");
             }
           } else {
             console.log("⚠️ No gallery images to save");
           }
         } catch (imagesErr: any) {
           console.error("❌ Exception in images save:", imagesErr);
+          Alert.alert("Error", "Failed to save gallery images");
+          return;
         }
 
-        // 3E. Save Floor Plan (if provided)
+        // 3D. Save Floor Plan (dimensions and visualization image)
         try {
-          if (floorPlanUrl) {
-            const floorPlanData = {
-              venue_id: venueId,
-              floor_plan_file: floorPlanUrl,
-              floor_plan_type: 'image',
-              length: parseFloat(length),
-              width: parseFloat(width),
-              height: parseFloat(ceilingHeight) || 0,
-              area_sqm: parseFloat(floorArea),
-            };
-            console.log("📐 Inserting floor plan:", floorPlanData);
-            const { error: floorPlanError } = await supabase.from('venue_floor_plans').insert([floorPlanData]);
-            if (floorPlanError) {
-              console.error("❌ Error saving floor plan:", floorPlanError);
-              console.log("Floor plan data that failed:", floorPlanData);
-            } else {
+          // Upload floor plan visualization image to Cloudinary
+          const floorPlanImageUrl = await uploadFloorPlanImageToCloudinary();
+          
+          const floorPlanData = {
+            venue_id: venueId,
+            floor_plan_file: floorPlanImageUrl || 'pending-upload',
+            floor_plan_type: 'visualization',
+            length: parseFloat(length),
+            width: parseFloat(width),
+            height: parseFloat(ceilingHeight) || 0,
+            area_sqm: parseFloat(floorArea),
+          };
+          console.log("📐 Inserting floor plan dimensions:", floorPlanData);
+          const { error: floorPlanError } = await supabase.from('venue_floor_plans').insert([floorPlanData]);
+          if (floorPlanError) {
+            console.error("❌ Error saving floor plan:", floorPlanError);
+            console.log("Floor plan data that failed:", floorPlanData);
+          } else {
               console.log("✅ Venue floor plan saved");
             }
-          } else {
-            console.log("⚠️ No floor plan to save");
-          }
         } catch (floorPlanErr: any) {
           console.error("❌ Exception in floor plan save:", floorPlanErr);
         }
 
-        // 3F. Save Contact Information
+        // 3E. Save Contact Information
         try {
           const contactsData = [];
           if (email) {
@@ -993,7 +1215,7 @@ export default function AddVenue() {
           console.error("❌ Exception in contact save:", contactErr);
         }
 
-        // 3G. Save Base Rate (Pricing)
+        // 3F. Save Base Rate (Pricing)
         try {
           if (hourlyRate) {
             const baseRateData = {
@@ -1022,32 +1244,55 @@ export default function AddVenue() {
           console.error("❌ Exception in base rate save:", rateErr);
         }
 
-        // 3H. Save Overtime Rate (if applicable)
+        // 3G. Save Overtime Rates (if applicable)
         try {
-          if (overtimeRate) {
-            const overtimeRateData = {
+          if (overtimeRates && overtimeRates.length > 0) {
+            const overtimeData = overtimeRates.map((or) => ({
               venue_id: venueId,
-              rate_type: 'Hourly',
-              start_hour: 8,
-              end_hour: null,
-              price_per_hour: parseFloat(overtimeRate),
+              rate_type: or.rateType,
+              start_hour: or.startHour ? parseInt(or.startHour) : null,
+              end_hour: or.endHour ? parseInt(or.endHour) : null,
+              price_per_hour: parseFloat(or.pricePerHour),
               is_active: true,
-            };
-            console.log("⏰ Inserting overtime rate:", overtimeRateData);
-            const { error: overtimeError } = await supabase.from('venue_overtime_rates').insert([overtimeRateData]);
+            }));
+            console.log("⏰ Inserting", overtimeData.length, "overtime rates:", overtimeData);
+            const { error: overtimeError } = await supabase.from('venue_overtime_rates').insert(overtimeData);
             if (overtimeError) {
-              console.error("❌ Error saving overtime rate:", overtimeError);
-              console.log("Overtime rate data that failed:", overtimeRateData);
+              console.error("❌ Error saving overtime rates:", overtimeError);
+              console.log("Overtime rates data that failed:", overtimeData);
             } else {
-              console.log("✅ Venue overtime rate saved");
+              console.log("✅ Venue overtime rates saved");
             }
           } else {
-            console.log("⚠️ No overtime rate provided");
+            console.log("⚠️ No overtime rates provided");
           }
         } catch (overtimeErr: any) {
-          console.error("❌ Exception in overtime rate save:", overtimeErr);
+          console.error("❌ Exception in overtime rates save:", overtimeErr);
         }
 
+        // 3H. Save Venue Specifications
+        try {
+          if (venueSpecifications && venueSpecifications.length > 0) {
+            const specsData = venueSpecifications.map((spec) => ({
+              venue_id: venueId,
+              specification_name: spec.name,
+              specification_value: spec.value,
+              notes: spec.notes || null,
+            }));
+            console.log("📋 Inserting", specsData.length, "specifications:", specsData);
+            const { error: specsError } = await supabase.from('venue_specifications').insert(specsData);
+            if (specsError) {
+              console.error("❌ Error saving specifications:", specsError);
+              console.log("Specifications data that failed:", specsData);
+            } else {
+              console.log("✅ Venue specifications saved");
+            }
+          } else {
+            console.log("⚠️ No specifications added");
+          }
+        } catch (specsErr: any) {
+          console.error("❌ Exception in specifications save:", specsErr);
+        }
         // 3I. Save Facilities
         try {
           if (facilities && facilities.length > 0) {
@@ -1168,29 +1413,19 @@ export default function AddVenue() {
         // 3M. Save Venue Type Link (venue_venue_types)
         try {
           if (type) {
-            // First, we need to get the venue_type_id from the type name
-            const { data: typeData, error: typeError } = await supabase
-              .from('venue_types')
-              .select('venue_type_id')
-              .eq('type_name', type)
-              .single();
-
-            if (typeData && typeData.venue_type_id) {
-              const venueTypeLink = {
-                venue_id: venueId,
-                venue_type_id: typeData.venue_type_id,
-              };
-              console.log("🏷️ Inserting venue type link:", venueTypeLink);
-              const { error: venueTypeLinkError } = await supabase.from('venue_venue_types').insert([venueTypeLink]);
-              if (venueTypeLinkError) {
-                console.error("❌ Error linking venue type:", venueTypeLinkError);
-                console.log("Venue type link data that failed:", venueTypeLink);
-                // Don't throw - type link is informational
-              } else {
-                console.log("✅ Venue type link saved");
-              }
-            } else if (typeError) {
-              console.log("⚠️ Venue type not found in database, skipping type link");
+            // type now stores the venue_type_id directly (not the name)
+            const venueTypeLink = {
+              venue_id: venueId,
+              venue_type_id: parseInt(type), // Convert to integer since it's stored as string in state
+            };
+            console.log("🏷️ Inserting venue type link:", venueTypeLink);
+            const { error: venueTypeLinkError } = await supabase.from('venue_venue_types').insert([venueTypeLink]);
+            if (venueTypeLinkError) {
+              console.error("❌ Error linking venue type:", venueTypeLinkError);
+              console.log("Venue type link data that failed:", venueTypeLink);
+              // Don't throw - type link is informational
+            } else {
+              console.log("✅ Venue type link saved");
             }
           } else {
             console.log("⚠️ No venue type selected");
@@ -1306,7 +1541,7 @@ export default function AddVenue() {
                       if (!validateRequired(length)) setLengthError({ field: "length", message: VALIDATION_MESSAGES.required("Length"), isValid: false });
                       if (!validateRequired(width)) setWidthError({ field: "width", message: VALIDATION_MESSAGES.required("Width"), isValid: false });
                       if (!validateRequired(floorArea)) setFloorAreaError({ field: "floorArea", message: VALIDATION_MESSAGES.required("Floor area"), isValid: false });
-                      if (!validateRequired(venueSpecifications)) setVenueSpecificationsError({ field: "venueSpecifications", message: VALIDATION_MESSAGES.required("Venue specifications"), isValid: false });
+                      if (venueSpecifications.length === 0) setVenueSpecificationsError({ field: "venueSpecifications", message: "Please add at least one venue specification", isValid: false });
                       if (selectedEventTypes.length === 0) setEventTypesError({ field: "eventTypes", message: "Please select at least one event type", isValid: false });
                     } else if (currentStep === 3) {
                       if (galleryImages.length === 0) setGalleryImagesError({ field: "galleryImages", message: "At least one gallery image is required", isValid: false });
@@ -1328,7 +1563,6 @@ export default function AddVenue() {
                     if (!validateRequired(minimumHours) || (minimumHours && parseInt(minimumHours) <= 0)) setMinimumHoursError({ field: "minimumHours", message: "Minimum hours must be greater than 0", isValid: false });
                     if (!validateRequired(weekendRate) || (weekendRate && parseFloat(weekendRate) < 0)) setWeekendRateError({ field: "weekendRate", message: "Weekend rate must be a valid non-negative number", isValid: false });
                     if (!validateRequired(holidayRate) || (holidayRate && parseFloat(holidayRate) < 0)) setHolidayRateError({ field: "holidayRate", message: "Holiday rate must be a valid non-negative number", isValid: false });
-                    if (!validateRequired(overtimeRate) || (overtimeRate && parseFloat(overtimeRate) < 0)) setOvertimeRateError({ field: "overtimeRate", message: "Overtime rate must be a valid non-negative number", isValid: false });
                     if (!validateEmail(email)) setEmailError({ field: "email", message: "Valid email is required", isValid: false });
                     if (!validateRequired(phone)) setPhoneError({ field: "phone", message: VALIDATION_MESSAGES.required("Phone number"), isValid: false });
                     if (packages.length === 0) setPackagesError({ field: "packages", message: "At least one venue package is required", isValid: false });
@@ -1456,7 +1690,7 @@ export default function AddVenue() {
                   onPress={() => setTypeDropdownOpen(!typeDropdownOpen)}
                 >
                   <Text style={[styles.dropdownText, { color: type ? theme.text : theme.textSecondary }]}>
-                    {type || "Select Venue Type"}
+                    {type ? venueTypes.find(vt => vt.id.toString() === type)?.name || "Select Venue Type" : "Select Venue Type"}
                   </Text>
                   <Ionicons name={typeDropdownOpen ? "chevron-up" : "chevron-down"} size={20} color={theme.textSecondary} />
                 </TouchableOpacity>
@@ -1468,7 +1702,7 @@ export default function AddVenue() {
                           key={option.id}
                           style={styles.dropdownItem}
                           onPress={() => {
-                            setType(option.name);
+                            setType(option.id.toString()); // Store the ID, not the name
                             setTypeDropdownOpen(false);
                             setTypeError({ field: "", message: "", isValid: true });
                           }}
@@ -1600,87 +1834,89 @@ export default function AddVenue() {
           {/* Step 2: Technical Specs */}
           {currentStep === 2 && (
             <View style={[styles.stepContent, { backgroundColor: theme.card, borderColor: theme.border }]}>
-              {/* Dimensions Card */}
-              <View style={[styles.cardContainer, { backgroundColor: theme.card, borderColor: theme.border }]}>
-                <Text style={[styles.sectionTitle, { color: theme.text }]}>Dimensions *</Text>
-                <View style={styles.dimensionsGrid}>
-                  <View style={styles.dimensionField}>
-                    <Text style={[styles.label, { color: theme.text }]}>Length (m) *</Text>
-                    <TextInput
-                      style={[styles.input, { backgroundColor: theme.lightBg, color: theme.text, borderColor: !lengthError.isValid ? Palette.red : theme.border }]}
-                      placeholder="0.00"
-                      placeholderTextColor={theme.textSecondary}
-                      value={length}
-                      onChangeText={(text) => {
-                        setLength(text);
-                        calculateFloorArea(text, width);
-                        setLengthError({ field: "", message: "", isValid: true });
-                      }}
-                      keyboardType="decimal-pad"
-                    />
-                    <ValidationError message={lengthError.message} visible={!lengthError.isValid} />
-                  </View>
-                  <View style={styles.dimensionField}>
-                    <Text style={[styles.label, { color: theme.text }]}>Width (m) *</Text>
-                    <TextInput
-                      style={[styles.input, { backgroundColor: theme.lightBg, color: theme.text, borderColor: !widthError.isValid ? Palette.red : theme.border }]}
-                      placeholder="0.00"
-                      placeholderTextColor={theme.textSecondary}
-                      value={width}
-                      onChangeText={(text) => {
-                        setWidth(text);
-                        calculateFloorArea(length, text);
-                        setWidthError({ field: "", message: "", isValid: true });
-                      }}
-                      keyboardType="decimal-pad"
-                    />
-                    <ValidationError message={widthError.message} visible={!widthError.isValid} />
-                  </View>
-                  <View style={styles.dimensionField}>
-                    <Text style={[styles.label, { color: theme.text }]}>Floor Area (sqm) *</Text>
-                    <TextInput
-                      style={[styles.input, { backgroundColor: theme.lightBg, color: theme.text, borderColor: !floorAreaError.isValid ? Palette.red : theme.border }]}
-                      placeholder="16.00"
-                      placeholderTextColor={theme.textSecondary}
-                      value={floorArea}
-                      editable={false}
-                    />
-                    <ValidationError message={floorAreaError.message} visible={!floorAreaError.isValid} />
-                  </View>
-                  <View style={styles.dimensionField}>
-                    <Text style={[styles.label, { color: theme.text }]}>Ceiling Height (m) (Optional)</Text>
-                    <TextInput
-                      style={[styles.input, { backgroundColor: theme.lightBg, color: theme.text, borderColor: theme.border }]}
-                      placeholder="12"
-                      placeholderTextColor={theme.textSecondary}
-                      value={ceilingHeight}
-                      onChangeText={setCeilingHeight}
-                      keyboardType="decimal-pad"
-                    />
-                  </View>
-                </View>
-              </View>
-
               {/* Venue Specifications Card */}
-              <View style={[styles.cardContainer, { backgroundColor: theme.card, borderColor: theme.border, marginTop: 16 }]}>
+              <View style={[styles.cardContainer, { backgroundColor: theme.card, borderColor: theme.border }]}>
                 <Text style={[styles.sectionTitle, { color: theme.text }]}>Venue Specifications *</Text>
 
+                {/* Specification Name Input */}
                 <View style={styles.formGroup}>
-                  <Text style={[styles.label, { color: theme.text }]}>Specifications Details *</Text>
+                  <Text style={[styles.label, { color: theme.text }]}>Specification Name *</Text>
                   <TextInput
-                    style={[styles.specInput, { backgroundColor: theme.lightBg, color: theme.text, borderColor: !venueSpecificationsError.isValid ? Palette.red : theme.border }]}
-                    placeholder="Enter venue specifications (e.g., Stage Available, Air Conditioning, Parking, Handicapped Access, etc.)"
+                    style={[styles.input, { backgroundColor: theme.lightBg, color: theme.text, borderColor: theme.border }]}
+                    placeholder="e.g., Capacity, Parking, Air Conditioning"
                     placeholderTextColor={theme.textSecondary}
-                    value={venueSpecifications}
-                    onChangeText={(text) => {
-                      setVenueSpecifications(text);
-                      setVenueSpecificationsError({ field: "", message: "", isValid: true });
-                    }}
-                    multiline
-                    numberOfLines={4}
+                    value={customSpecificationInput}
+                    onChangeText={setCustomSpecificationInput}
                   />
-                  <ValidationError message={venueSpecificationsError.message} visible={!venueSpecificationsError.isValid} />
                 </View>
+
+                {/* Specification Value Input */}
+                <View style={styles.formGroup}>
+                  <Text style={[styles.label, { color: theme.text }]}>Specification Value *</Text>
+                  <TextInput
+                    style={[styles.input, { backgroundColor: theme.lightBg, color: theme.text, borderColor: theme.border }]}
+                    placeholder="e.g., 300 pax, 50 slots, Yes"
+                    placeholderTextColor={theme.textSecondary}
+                    value={specValueInput}
+                    onChangeText={setSpecValueInput}
+                  />
+                </View>
+
+                {/* Specification Notes Input */}
+                <View style={styles.formGroup}>
+                  <Text style={[styles.label, { color: theme.text }]}>Notes (Optional)</Text>
+                  <TextInput
+                    style={[styles.notesInput, { backgroundColor: theme.lightBg, color: theme.text, borderColor: theme.border }]}
+                    placeholder="e.g., Maximum seated capacity, On-site parking available"
+                    placeholderTextColor={theme.textSecondary}
+                    value={specNotesInput}
+                    onChangeText={setSpecNotesInput}
+                    multiline
+                    numberOfLines={2}
+                  />
+                </View>
+
+                {/* Add Button */}
+                <TouchableOpacity
+                  style={[styles.addFacilityButton, { backgroundColor: Palette.primary, alignSelf: 'flex-start', marginBottom: 16 }]}
+                  onPress={addCustomSpecification}
+                >
+                  <Ionicons name="add" size={20} color={Palette.black} />
+                  <Text style={[styles.addFacilityButtonText, { color: Palette.black }]}>Add Specification</Text>
+                </TouchableOpacity>
+
+                {/* Specifications Display */}
+                {venueSpecifications.length > 0 && (
+                  <View style={styles.customFacilitiesContainer}>
+                    <Text style={[styles.label, { color: theme.text, marginBottom: 12 }]}>Added Specifications ({venueSpecifications.length})</Text>
+                    {venueSpecifications.map((spec, index) => (
+                      <View
+                        key={spec.id}
+                        style={[
+                          styles.specificationCard,
+                          { backgroundColor: theme.lightBg, borderColor: theme.border },
+                        ]}
+                      >
+                        <View style={{ flex: 1 }}>
+                          <Text style={[styles.specificationName, { color: theme.text }]}>{spec.name}</Text>
+                          <Text style={[styles.specificationValue, { color: theme.textSecondary }]}>{spec.value}</Text>
+                          {spec.notes && (
+                            <Text style={[styles.specificationNotes, { color: theme.textSecondary }]}>{spec.notes}</Text>
+                          )}
+                        </View>
+                        <TouchableOpacity
+                          onPress={() => {
+                            setVenueSpecifications(venueSpecifications.filter((s) => s.id !== spec.id));
+                          }}
+                          style={{ marginLeft: 12 }}
+                        >
+                          <Ionicons name="trash" size={18} color={Palette.red} />
+                        </TouchableOpacity>
+                      </View>
+                    ))}
+                  </View>
+                )}
+                <ValidationError message={venueSpecificationsError.message} visible={!venueSpecificationsError.isValid} />
               </View>
 
               {/* Allowed Event Types Card */}
@@ -1722,37 +1958,23 @@ export default function AddVenue() {
                 <ValidationError message={eventTypesError.message} visible={!eventTypesError.isValid} />
               </View>
 
-              {/* Floor Plan Upload & Venue Measurement Card */}
+              {/* Floor Plan & Venue Measurement Card */}
               <View style={[styles.cardContainer, { backgroundColor: theme.card, borderColor: theme.border, marginTop: 16 }]}>
-                <Text style={[styles.sectionTitle, { color: theme.text }]}>Floor Plan Upload & Venue Measurement *</Text>
-
-                <View style={styles.formGroup}>
-                  <Text style={[styles.label, { color: theme.text }]}>Floor Plan Image (PNG / JPG / PDF) *</Text>
-                  <View style={styles.floorPlanInputContainer}>
-                    <TextInput
-                      style={[styles.floorPlanInput, { backgroundColor: theme.lightBg, color: theme.text, borderColor: theme.border }]}
-                      placeholder="Enter floor plan image URL"
-                      placeholderTextColor={theme.textSecondary}
-                      value={floorPlanUrl}
-                      onChangeText={setFloorPlanUrl}
-                    />
-                    <TouchableOpacity style={[styles.uploadButton, { backgroundColor: Palette.gray500 }]}>
-                      <Ionicons name="cloud-upload" size={18} color="white" />
-                      <Text style={styles.uploadButtonText}>Upload</Text>
-                    </TouchableOpacity>
-                  </View>
-                </View>
+                <Text style={[styles.sectionTitle, { color: theme.text }]}>Venue Measurement & Floor Plan *</Text>
 
                 <View style={styles.measurementGrid}>
                   <View style={styles.measurementField}>
                     <Text style={[styles.label, { color: theme.text }]}>Width (meters) *</Text>
                     <TextInput
-                      style={[styles.input, { backgroundColor: theme.lightBg, color: theme.text, borderColor: theme.border }]}
+                      style={[styles.input, { backgroundColor: theme.lightBg, color: theme.text, borderColor: !widthError.isValid ? Palette.red : theme.border }]}
                       placeholder="0.00"
                       placeholderTextColor={theme.textSecondary}
                       value={width}
                       onChangeText={(text) => {
                         setWidth(text);
+                        if (text.trim()) {
+                          setWidthError({ field: "", message: "", isValid: true });
+                        }
                         if (length && text) {
                           const area = (parseFloat(length) * parseFloat(text)).toFixed(2);
                           setFloorArea(area);
@@ -1760,16 +1982,25 @@ export default function AddVenue() {
                       }}
                       keyboardType="decimal-pad"
                     />
+                    {!widthError.isValid && (
+                      <ValidationError
+                        message={widthError.message}
+                        visible={!widthError.isValid}
+                      />
+                    )}
                   </View>
                   <View style={styles.measurementField}>
                     <Text style={[styles.label, { color: theme.text }]}>Length (meters) *</Text>
                     <TextInput
-                      style={[styles.input, { backgroundColor: theme.lightBg, color: theme.text, borderColor: theme.border }]}
+                      style={[styles.input, { backgroundColor: theme.lightBg, color: theme.text, borderColor: !lengthError.isValid ? Palette.red : theme.border }]}
                       placeholder="0.00"
                       placeholderTextColor={theme.textSecondary}
                       value={length}
                       onChangeText={(text) => {
                         setLength(text);
+                        if (text.trim()) {
+                          setLengthError({ field: "", message: "", isValid: true });
+                        }
                         if (width && text) {
                           const area = (parseFloat(text) * parseFloat(width)).toFixed(2);
                           setFloorArea(area);
@@ -1777,6 +2008,12 @@ export default function AddVenue() {
                       }}
                       keyboardType="decimal-pad"
                     />
+                    {!lengthError.isValid && (
+                      <ValidationError
+                        message={lengthError.message}
+                        visible={!lengthError.isValid}
+                      />
+                    )}
                   </View>
                   <View style={styles.measurementField}>
                     <Text style={[styles.label, { color: theme.text }]}>Height (meters) *</Text>
@@ -1800,6 +2037,15 @@ export default function AddVenue() {
                     />
                   </View>
                 </View>
+
+                {/* Floor Plan Visualizer */}
+                <VenueFloorPlanVisualizer
+                  ref={floorPlanVisualizerRef}
+                  length={length}
+                  width={width}
+                  doors={doors}
+                  theme={theme}
+                />
               </View>
 
               {/* Door Placement Card */}
@@ -1813,21 +2059,29 @@ export default function AddVenue() {
                         ...doors,
                         {
                           id: nextDoorId,
-                          type: "Single Door",
+                          type: "Single",
                           width: "",
                           height: "",
                           offsetFromCorner: "",
                           swingDirection: "Inward",
                           hingePosition: "Left",
+                          wall: "Left",
                         },
                       ]);
                       setNextDoorId(nextDoorId + 1);
+                      setDoorsError({ field: "", message: "", isValid: true });
                     }}
                   >
                     <Ionicons name="add" size={20} color={Palette.black} />
                     <Text style={[styles.addDoorButtonText, { color: Palette.black }]}>Add Door</Text>
                   </TouchableOpacity>
                 </View>
+                {!doorsError.isValid && (
+                  <ValidationError
+                    message={doorsError.message}
+                    visible={!doorsError.isValid}
+                  />
+                )}
 
                 {doors.map((door, index) => (
                   <View key={door.id} style={[styles.doorCard, { backgroundColor: theme.lightBg, borderColor: theme.border }]}>
@@ -1841,10 +2095,70 @@ export default function AddVenue() {
                     <View style={styles.doorFieldsGrid}>
                       <View style={styles.doorField}>
                         <Text style={[styles.label, { color: theme.text }]}>Door Type</Text>
-                        <TouchableOpacity style={[styles.dropdown, { backgroundColor: theme.card, borderColor: theme.border }]}>
-                          <Text style={[styles.dropdownText, { color: theme.text }]}>Single Door</Text>
-                          <Ionicons name="chevron-down" size={16} color={theme.textSecondary} />
+                        <TouchableOpacity 
+                          style={[styles.dropdown, { backgroundColor: theme.card, borderColor: theme.border }]}
+                          onPress={() => {
+                            const dropdownKey = `door-type-${door.id}`;
+                            setOpenDropdowns({
+                              ...openDropdowns,
+                              [dropdownKey]: !openDropdowns[dropdownKey]
+                            });
+                          }}
+                        >
+                          <Text style={[styles.dropdownText, { color: theme.text }]}>{door.type}</Text>
+                          <Ionicons name={openDropdowns[`door-type-${door.id}`] ? "chevron-up" : "chevron-down"} size={16} color={theme.textSecondary} />
                         </TouchableOpacity>
+                        {openDropdowns[`door-type-${door.id}`] && (
+                          <View style={[styles.dropdownList, { backgroundColor: theme.card, borderColor: theme.border }]}>
+                            {DOOR_TYPES.map((doorType) => (
+                              <TouchableOpacity
+                                key={doorType}
+                                style={styles.dropdownItem}
+                                onPress={() => {
+                                  const updatedDoors = doors.map((d) => (d.id === door.id ? { ...d, type: doorType } : d));
+                                  setDoors(updatedDoors);
+                                  setOpenDropdowns({ ...openDropdowns, [`door-type-${door.id}`]: false });
+                                }}
+                              >
+                                <Text style={[styles.dropdownItemText, { color: theme.text }]}>{doorType}</Text>
+                              </TouchableOpacity>
+                            ))}
+                          </View>
+                        )}
+                      </View>
+
+                      <View style={styles.doorField}>
+                        <Text style={[styles.label, { color: theme.text }]}>Wall</Text>
+                        <TouchableOpacity 
+                          style={[styles.dropdown, { backgroundColor: theme.card, borderColor: theme.border }]}
+                          onPress={() => {
+                            const dropdownKey = `door-wall-${door.id}`;
+                            setOpenDropdowns({
+                              ...openDropdowns,
+                              [dropdownKey]: !openDropdowns[dropdownKey]
+                            });
+                          }}
+                        >
+                          <Text style={[styles.dropdownText, { color: theme.text }]}>{door.wall || "Select Wall"}</Text>
+                          <Ionicons name={openDropdowns[`door-wall-${door.id}`] ? "chevron-up" : "chevron-down"} size={16} color={theme.textSecondary} />
+                        </TouchableOpacity>
+                        {openDropdowns[`door-wall-${door.id}`] && (
+                          <View style={[styles.dropdownList, { backgroundColor: theme.card, borderColor: theme.border }]}>
+                            {DOOR_WALLS.map((wallOption) => (
+                              <TouchableOpacity
+                                key={wallOption}
+                                style={styles.dropdownItem}
+                                onPress={() => {
+                                  const updatedDoors = doors.map((d) => (d.id === door.id ? { ...d, wall: wallOption } : d));
+                                  setDoors(updatedDoors);
+                                  setOpenDropdowns({ ...openDropdowns, [`door-wall-${door.id}`]: false });
+                                }}
+                              >
+                                <Text style={[styles.dropdownItemText, { color: theme.text }]}>{wallOption}</Text>
+                              </TouchableOpacity>
+                            ))}
+                          </View>
+                        )}
                       </View>
 
                       <View style={styles.doorField}>
@@ -1858,7 +2172,7 @@ export default function AddVenue() {
                           onChangeText={(text) => {
                             const updatedDoors = doors.map((d) => (d.id === door.id ? { ...d, width: text } : d));
                             setDoors(updatedDoors);
-                            setDoorsError("");
+                            setDoorsError({ field: "", message: "", isValid: true });
                           }}
                         />
                       </View>
@@ -1874,7 +2188,7 @@ export default function AddVenue() {
                           onChangeText={(text) => {
                             const updatedDoors = doors.map((d) => (d.id === door.id ? { ...d, height: text } : d));
                             setDoors(updatedDoors);
-                            setDoorsError("");
+                            setDoorsError({ field: "", message: "", isValid: true });
                           }}
                         />
                       </View>
@@ -1892,30 +2206,81 @@ export default function AddVenue() {
                           onChangeText={(text) => {
                             const updatedDoors = doors.map((d) => (d.id === door.id ? { ...d, offsetFromCorner: text } : d));
                             setDoors(updatedDoors);
-                            setDoorsError("");
+                            setDoorsError({ field: "", message: "", isValid: true });
                           }}
                         />
                       </View>
 
                       <View style={styles.doorField}>
                         <Text style={[styles.label, { color: theme.text }]}>Swing Direction</Text>
-                        <TouchableOpacity style={[styles.dropdown, { backgroundColor: theme.card, borderColor: theme.border }]}>
-                          <Text style={[styles.dropdownText, { color: theme.text }]}>Inward</Text>
-                          <Ionicons name="chevron-down" size={16} color={theme.textSecondary} />
+                        <TouchableOpacity 
+                          style={[styles.dropdown, { backgroundColor: theme.card, borderColor: theme.border }]}
+                          onPress={() => {
+                            const dropdownKey = `door-swing-${door.id}`;
+                            setOpenDropdowns({
+                              ...openDropdowns,
+                              [dropdownKey]: !openDropdowns[dropdownKey]
+                            });
+                          }}
+                        >
+                          <Text style={[styles.dropdownText, { color: theme.text }]}>{door.swingDirection}</Text>
+                          <Ionicons name={openDropdowns[`door-swing-${door.id}`] ? "chevron-up" : "chevron-down"} size={16} color={theme.textSecondary} />
                         </TouchableOpacity>
+                        {openDropdowns[`door-swing-${door.id}`] && (
+                          <View style={[styles.dropdownList, { backgroundColor: theme.card, borderColor: theme.border }]}>
+                            {DOOR_SWING_DIRECTIONS.map((swingDir) => (
+                              <TouchableOpacity
+                                key={swingDir}
+                                style={styles.dropdownItem}
+                                onPress={() => {
+                                  const updatedDoors = doors.map((d) => (d.id === door.id ? { ...d, swingDirection: swingDir } : d));
+                                  setDoors(updatedDoors);
+                                  setOpenDropdowns({ ...openDropdowns, [`door-swing-${door.id}`]: false });
+                                }}
+                              >
+                                <Text style={[styles.dropdownItemText, { color: theme.text }]}>{swingDir}</Text>
+                              </TouchableOpacity>
+                            ))}
+                          </View>
+                        )}
                       </View>
 
                       <View style={styles.doorField}>
                         <Text style={[styles.label, { color: theme.text }]}>Hinge Position</Text>
-                        <TouchableOpacity style={[styles.dropdown, { backgroundColor: theme.card, borderColor: theme.border }]}>
-                          <Text style={[styles.dropdownText, { color: theme.text }]}>Left</Text>
-                          <Ionicons name="chevron-down" size={16} color={theme.textSecondary} />
+                        <TouchableOpacity 
+                          style={[styles.dropdown, { backgroundColor: theme.card, borderColor: theme.border }]}
+                          onPress={() => {
+                            const dropdownKey = `door-hinge-${door.id}`;
+                            setOpenDropdowns({
+                              ...openDropdowns,
+                              [dropdownKey]: !openDropdowns[dropdownKey]
+                            });
+                          }}
+                        >
+                          <Text style={[styles.dropdownText, { color: theme.text }]}>{door.hingePosition}</Text>
+                          <Ionicons name={openDropdowns[`door-hinge-${door.id}`] ? "chevron-up" : "chevron-down"} size={16} color={theme.textSecondary} />
                         </TouchableOpacity>
+                        {openDropdowns[`door-hinge-${door.id}`] && (
+                          <View style={[styles.dropdownList, { backgroundColor: theme.card, borderColor: theme.border }]}>
+                            {DOOR_HINGE_POSITIONS.map((hingePos) => (
+                              <TouchableOpacity
+                                key={hingePos}
+                                style={styles.dropdownItem}
+                                onPress={() => {
+                                  const updatedDoors = doors.map((d) => (d.id === door.id ? { ...d, hingePosition: hingePos } : d));
+                                  setDoors(updatedDoors);
+                                  setOpenDropdowns({ ...openDropdowns, [`door-hinge-${door.id}`]: false });
+                                }}
+                              >
+                                <Text style={[styles.dropdownItemText, { color: theme.text }]}>{hingePos}</Text>
+                              </TouchableOpacity>
+                            ))}
+                          </View>
+                        )}
                       </View>
                     </View>
                   </View>
                 ))}
-                {doorsError && <Text style={{ color: Palette.red, fontSize: 12, marginTop: 8 }}>{doorsError}</Text>}
               </View>
             </View>
           )}
@@ -1927,41 +2292,51 @@ export default function AddVenue() {
               <View style={[styles.cardContainer, { backgroundColor: theme.card, borderColor: theme.border }]}>
                 <Text style={[styles.sectionTitle, { color: theme.text }]}>Gallery / Assets *</Text>
 
-                <View style={styles.formGroup}>
-                  <Text style={[styles.label, { color: theme.text }]}>Add Image Links *</Text>
-                  <View style={styles.imageUrlInputContainer}>
-                    <TextInput
-                      style={[styles.imageUrlInput, { backgroundColor: theme.lightBg, color: theme.text, borderColor: theme.border }]}
-                      placeholder="e.g., https://example.com/image.jpg"
-                      placeholderTextColor={theme.textSecondary}
-                      value={imageUrlInput}
-                      onChangeText={setImageUrlInput}
+                {/* Thumbnail Preview Banner */}
+                {galleryImages.length > 0 && galleryImages[thumbnailIndex] ? (
+                  <View style={styles.thumbnailPreviewContainer}>
+                    <Image 
+                      source={{ uri: galleryImages[thumbnailIndex] }} 
+                      style={styles.thumbnailPreview}
+                      onError={() => console.error('Failed to load thumbnail preview')}
                     />
-                    <TouchableOpacity
-                      style={[styles.addImageButton, { backgroundColor: Palette.primary }]}
-                      onPress={() => {
-                        if (imageUrlInput.trim()) {
-                          if (galleryImages.length < 10) {
-                            setGalleryImages([...galleryImages, imageUrlInput.trim()]);
-                            setImageUrlInput("");
-                            setGalleryImagesError({ field: "", message: "", isValid: true });
-                          } else {
-                            Alert.alert("Limit Reached", "Maximum 10 images allowed");
-                          }
-                        }
-                      }}
-                    >
-                      <Ionicons name="add" size={20} color={Palette.black} />
-                      <Text style={[styles.addImageButtonText, { color: Palette.black }]}>Add</Text>
-                    </TouchableOpacity>
+                    <View style={styles.thumbnailPreviewBadge}>
+                      <Ionicons name="checkmark-circle" size={18} color="white" />
+                      <Text style={{ color: "white", fontSize: 13, fontWeight: "600", marginLeft: 6 }}>Featured Thumbnail</Text>
+                    </View>
                   </View>
+                ) : null}
+
+                <View style={styles.formGroup}>
+                  <Text style={[styles.label, { color: theme.text }]}>Upload Images (Max 10) *</Text>
+                  <TouchableOpacity
+                    style={[styles.addImageButton, { borderColor: !galleryImagesError.isValid ? Palette.red : theme.border }]}
+                    onPress={async () => {
+                      if (galleryImages.length >= 10) {
+                        Alert.alert("Limit Reached", "Maximum 10 images allowed");
+                        return;
+                      }
+                      const result = await ImagePicker.launchImageLibraryAsync({
+                        mediaTypes: ['images'],
+                        allowsEditing: false,
+                        quality: 1,
+                      });
+                      if (!result.canceled && result.assets[0]) {
+                        setGalleryImages([...galleryImages, result.assets[0].uri]);
+                        setGalleryImagesError({ field: "", message: "", isValid: true });
+                      }
+                    }}
+                  >
+                    <Ionicons name="cloud-upload" size={24} color={Palette.primary} />
+                    <Text style={[styles.addImageButtonText, { color: theme.text }]}>Upload Image</Text>
+                  </TouchableOpacity>
                 </View>
 
                 {galleryImages.length === 0 && (
                   <View style={{ alignItems: "center", paddingVertical: 32, marginVertical: 16, borderRadius: 12, backgroundColor: theme.lightBg, borderWidth: 1, borderStyle: "dashed", borderColor: theme.border }}>
                     <Ionicons name="image-outline" size={48} color={theme.textSecondary} />
-                    <Text style={[styles.label, { color: theme.textSecondary, marginTop: 12, textAlign: "center" }]}>No images added yet</Text>
-                    <Text style={[{ color: theme.textSecondary, fontSize: 12, marginTop: 4, textAlign: "center" }]}>Add image links to get started</Text>
+                    <Text style={[styles.label, { color: theme.textSecondary, marginTop: 12, textAlign: "center" }]}>No images uploaded yet</Text>
+                    <Text style={[{ color: theme.textSecondary, fontSize: 12, marginTop: 4, textAlign: "center" }]}>Upload venue photos to get started</Text>
                   </View>
                 )}
 
@@ -1970,19 +2345,42 @@ export default function AddVenue() {
                     <Text style={[styles.label, { color: theme.text }]}>
                       Images ({galleryImages.length}/10)
                     </Text>
-                    <View style={styles.imageLinksContainer}>
-                      {galleryImages.map((image, index) => (
-                        <View key={index} style={[styles.imageLinkItem, { backgroundColor: theme.lightBg, borderColor: theme.border }]}>
-                          <Text style={[styles.imageLinkText, { color: theme.text, flex: 1 }]} numberOfLines={1}>
-                            {image}
-                          </Text>
-                          <TouchableOpacity
-                            onPress={() => {
-                              setGalleryImages(galleryImages.filter((_, i) => i !== index));
-                            }}
-                          >
-                            <Ionicons name="trash" size={18} color={Palette.red} />
-                          </TouchableOpacity>
+                    <View style={styles.imagesGrid}>
+                      {galleryImages.map((imageUri, index) => (
+                        <View key={index} style={[styles.imageCard, { backgroundColor: theme.card, borderColor: thumbnailIndex === index ? Palette.primary : theme.border }]}>
+                          {imageUri ? (
+                            <Image 
+                              source={{ uri: imageUri }} 
+                              style={styles.imagePreview}
+                              onError={() => console.error('Failed to load image at index', index)}
+                            />
+                          ) : (
+                            <View style={[styles.imagePreview, { backgroundColor: '#f0f0f0', justifyContent: 'center', alignItems: 'center' }]}>
+                              <Ionicons name="image-outline" size={32} color={theme.textSecondary} />
+                            </View>
+                          )}
+                          <View style={styles.imageActions}>
+                            <TouchableOpacity
+                              style={[styles.thumbnailBadge, { backgroundColor: thumbnailIndex === index ? Palette.primary : theme.lightBg }]}
+                              onPress={() => setThumbnailIndex(index)}
+                            >
+                              <Text style={[styles.badgeText, { color: thumbnailIndex === index ? "white" : theme.text }]}>
+                                {thumbnailIndex === index ? "Thumbnail" : "Set"}
+                              </Text>
+                            </TouchableOpacity>
+                            <TouchableOpacity
+                              style={styles.removeImageButton}
+                              onPress={() => {
+                                const newImages = galleryImages.filter((_, i) => i !== index);
+                                setGalleryImages(newImages);
+                                if (thumbnailIndex === index) {
+                                  setThumbnailIndex(Math.max(0, newImages.length - 1));
+                                }
+                              }}
+                            >
+                              <Ionicons name="trash" size={18} color={Palette.red} />
+                            </TouchableOpacity>
+                          </View>
                         </View>
                       ))}
                     </View>
@@ -1995,24 +2393,11 @@ export default function AddVenue() {
               <View style={[styles.cardContainer, { backgroundColor: theme.card, borderColor: theme.border, marginTop: 16 }]}>
                 <Text style={[styles.sectionTitle, { color: theme.text }]}>Facilities / Inclusions *</Text>
 
-                {/* Default Facilities */}
-                <View style={styles.facilitiesGrid}>
-                  {defaultFacilities.map((facility) => (
-                    <TouchableOpacity
-                      key={facility}
-                      style={[styles.facilityChip, { backgroundColor: facilities.includes(facility) ? Palette.blue : theme.lightBg, borderColor: facilities.includes(facility) ? Palette.blue : theme.border }]}
-                      onPress={() => toggleFacility(facility)}
-                    >
-                      <Text style={[styles.facilityChipText, { color: facilities.includes(facility) ? "white" : theme.text }]}>{facility}</Text>
-                    </TouchableOpacity>
-                  ))}
-                </View>
-
                 {/* Custom Facility Input */}
                 <View style={styles.customFacilityContainer}>
                   <TextInput
                     style={[styles.customFacilityInput, { backgroundColor: theme.lightBg, color: theme.text, borderColor: theme.border }]}
-                    placeholder="Add custom facility"
+                    placeholder="Add facility (e.g., Tables & Chairs, Sound System, etc.)"
                     placeholderTextColor={theme.textSecondary}
                     value={customFacilityInput}
                     onChangeText={setCustomFacilityInput}
@@ -2026,32 +2411,29 @@ export default function AddVenue() {
                   </TouchableOpacity>
                 </View>
 
-                {/* Custom Facilities Display */}
-                {facilities.filter((f) => !defaultFacilities.includes(f)).length > 0 && (
+                {/* Facilities Display */}
+                {facilities.length > 0 && (
                   <View style={styles.customFacilitiesContainer}>
-                    <Text style={[styles.label, { color: theme.text }]}>Custom Facilities</Text>
                     <View style={styles.customFacilitiesGrid}>
-                      {facilities
-                        .filter((f) => !defaultFacilities.includes(f))
-                        .map((facility, index) => (
-                          <View
-                            key={index}
-                            style={[
-                              styles.customFacilityChip,
-                              { backgroundColor: Palette.blue, borderColor: Palette.blue },
-                            ]}
+                      {facilities.map((facility, index) => (
+                        <View
+                          key={index}
+                          style={[
+                            styles.customFacilityChip,
+                            { backgroundColor: Palette.blue, borderColor: Palette.blue },
+                          ]}
+                        >
+                          <Text style={[styles.facilityChipText, { color: "white" }]}>{facility}</Text>
+                          <TouchableOpacity
+                            onPress={() => {
+                              setFacilities(facilities.filter((f) => f !== facility));
+                            }}
+                            style={{ marginLeft: 8 }}
                           >
-                            <Text style={[styles.facilityChipText, { color: "white" }]}>{facility}</Text>
-                            <TouchableOpacity
-                              onPress={() => {
-                                setFacilities(facilities.filter((f) => f !== facility));
-                              }}
-                              style={{ marginLeft: 8 }}
-                            >
-                              <Ionicons name="close" size={16} color="white" />
-                            </TouchableOpacity>
-                          </View>
-                        ))}
+                            <Ionicons name="close" size={16} color="white" />
+                          </TouchableOpacity>
+                        </View>
+                      ))}
                     </View>
                   </View>
                 )}
@@ -2087,7 +2469,7 @@ export default function AddVenue() {
             <View style={[styles.stepContent, { backgroundColor: theme.card, borderColor: theme.border }]}>
               {/* Pricing & Packages Card */}
               <View style={[styles.cardContainer, { backgroundColor: theme.card, borderColor: theme.border }]}>
-                <Text style={[styles.sectionTitle, { color: theme.text }]}>Venue Price *</Text>
+                <Text style={[styles.sectionTitle, { color: theme.text }]}>Base Pricing *</Text>
 
                 {/* Hourly & Minimum Hours */}
                 <View style={styles.pricingGrid}>
@@ -2157,23 +2539,6 @@ export default function AddVenue() {
                   </View>
                 </View>
 
-                {/* Overtime Rate */}
-                <View style={styles.formGroup}>
-                  <Text style={[styles.label, { color: theme.text }]}>Overtime Rate (₱) *</Text>
-                  <TextInput
-                    style={[styles.input, { backgroundColor: theme.lightBg, color: theme.text, borderColor: !overtimeRateError.isValid ? Palette.red : theme.border }]}
-                    placeholder="0.00"
-                    placeholderTextColor={theme.textSecondary}
-                    value={overtimeRate}
-                    onChangeText={(text) => {
-                      setOvertimeRate(text);
-                      setOvertimeRateError({ field: "", message: "", isValid: true });
-                    }}
-                    keyboardType="decimal-pad"
-                  />
-                  <ValidationError message={overtimeRateError.message} visible={!overtimeRateError.isValid} />
-                </View>
-
                 {/* Notes / Terms */}
                 <View style={styles.formGroup}>
                   <Text style={[styles.label, { color: theme.text }]}>Notes / Terms</Text>
@@ -2187,6 +2552,111 @@ export default function AddVenue() {
                     numberOfLines={3}
                   />
                 </View>
+              </View>
+
+              {/* Overtime Rates Card */}
+              <View style={[styles.cardContainer, { backgroundColor: theme.card, borderColor: theme.border, marginTop: 20 }]}>
+                <View style={styles.packageHeaderContainer}>
+                  <Text style={[styles.sectionTitle, { color: theme.text }]}>Overtime Rates (Optional)</Text>
+                  <TouchableOpacity
+                    style={[styles.addPackageButton, { backgroundColor: Palette.primary }]}
+                    onPress={addOvertimeRate}
+                  >
+                    <Ionicons name="add" size={18} color={Palette.black} />
+                    <Text style={[styles.addPackageButtonText, { color: Palette.black }]}>Add Rate</Text>
+                  </TouchableOpacity>
+                </View>
+
+                {overtimeRates.map((rate, index) => (
+                  <View key={rate.id} style={[styles.packageCard, { backgroundColor: theme.lightBg, borderColor: theme.border }]}>
+                    <View style={styles.packageCardHeader}>
+                      <Text style={[styles.packageCardTitle, { color: theme.text }]}>Rate {index + 1}</Text>
+                      <TouchableOpacity onPress={() => deleteOvertimeRate(rate.id)}>
+                        <Ionicons name="trash" size={20} color={Palette.red} />
+                      </TouchableOpacity>
+                    </View>
+
+                    <View style={[styles.pricingGrid, { overflow: 'visible', zIndex: 5 }]}>
+                      <View style={[styles.priceField, { overflow: 'visible', zIndex: 6 }]}>
+                        <Text style={[styles.label, { color: theme.text }]}>Rate Type</Text>
+                        <TouchableOpacity
+                          style={[styles.dropdown, { backgroundColor: theme.card, borderColor: theme.border }]}
+                          onPress={() => setOpenDropdowns({ ...openDropdowns, [`overtimeRateType_${rate.id}`]: !openDropdowns[`overtimeRateType_${rate.id}`] })}
+                        >
+                          <Text style={[styles.dropdownText, { color: theme.text }]}>{rate.rateType}</Text>
+                          <Ionicons name={openDropdowns[`overtimeRateType_${rate.id}`] ? "chevron-up" : "chevron-down"} size={20} color={theme.text} />
+                        </TouchableOpacity>
+                        {openDropdowns[`overtimeRateType_${rate.id}`] && (
+                          <View style={[styles.dropdownMenu, { backgroundColor: theme.card, borderColor: theme.border, marginTop: 4, zIndex: 100 }]}>
+                            {["Hourly", "Daily"].map((type) => (
+                              <TouchableOpacity
+                                key={type}
+                                style={styles.dropdownItem}
+                                onPress={() => {
+                                  updateOvertimeRate(rate.id, "rateType", type);
+                                  setOpenDropdowns({ ...openDropdowns, [`overtimeRateType_${rate.id}`]: false });
+                                }}
+                              >
+                                <Text style={[styles.dropdownItemText, { color: theme.text }]}>{type}</Text>
+                              </TouchableOpacity>
+                            ))}
+                          </View>
+                        )}
+                      </View>
+                      <View style={styles.priceField}>
+                        <Text style={[styles.label, { color: theme.text }]}>Price Per Hour (₱)</Text>
+                        <TextInput
+                          style={[
+                            styles.input,
+                            { color: theme.text, borderColor: theme.border },
+                          ]}
+                          placeholder="0.00"
+                          placeholderTextColor={theme.textSecondary}
+                          value={rate.pricePerHour}
+                          onChangeText={(val) => updateOvertimeRate(rate.id, 'pricePerHour', val)}
+                          keyboardType="decimal-pad"
+                        />
+                      </View>
+                    </View>
+
+                    <View style={styles.pricingGrid}>
+                      <View style={styles.priceField}>
+                        <Text style={[styles.label, { color: theme.text }]}>Start Hour</Text>
+                        <TextInput
+                          style={[
+                            styles.input,
+                            { color: theme.text, borderColor: theme.border },
+                          ]}
+                          placeholder="0"
+                          placeholderTextColor={theme.textSecondary}
+                          value={rate.startHour}
+                          onChangeText={(val) => updateOvertimeRate(rate.id, 'startHour', val)}
+                          keyboardType="numeric"
+                        />
+                      </View>
+                      <View style={styles.priceField}>
+                        <Text style={[styles.label, { color: theme.text }]}>End Hour (Optional)</Text>
+                        <TextInput
+                          style={[
+                            styles.input,
+                            { color: theme.text, borderColor: theme.border },
+                          ]}
+                          placeholder="0"
+                          placeholderTextColor={theme.textSecondary}
+                          value={rate.endHour}
+                          onChangeText={(val) => updateOvertimeRate(rate.id, 'endHour', val)}
+                          keyboardType="numeric"
+                        />
+                      </View>
+                    </View>
+                  </View>
+                ))}
+
+                {overtimeRates.length === 0 && (
+                  <Text style={[styles.label, { color: theme.textSecondary, textAlign: 'center', marginTop: 16 }]}>
+                    No overtime rates added yet
+                  </Text>
+                )}
               </View>
 
               {/* Pricing Packages Card */}
@@ -2266,6 +2736,140 @@ export default function AddVenue() {
                   </Text>
                 )}
                 <ValidationError message={packagesError.message} visible={!packagesError.isValid} />
+              </View>
+
+              {/* Seasonal Pricing Card */}
+              <View style={[styles.cardContainer, { backgroundColor: theme.card, borderColor: theme.border, marginTop: 20 }]}>
+                <View style={styles.packageHeaderContainer}>
+                  <Text style={[styles.sectionTitle, { color: theme.text }]}>Seasonal Pricing (Optional)</Text>
+                  <TouchableOpacity
+                    style={[styles.addPackageButton, { backgroundColor: Palette.primary }]}
+                    onPress={addSeasonalPrice}
+                  >
+                    <Ionicons name="add" size={18} color={Palette.black} />
+                    <Text style={[styles.addPackageButtonText, { color: Palette.black }]}>Add Season</Text>
+                  </TouchableOpacity>
+                </View>
+
+                {seasonalPrices.length > 0 ? (
+                  seasonalPrices.map((season, index) => (
+                    <View key={season.id} style={[styles.packageCard, { backgroundColor: theme.lightBg, borderColor: theme.border }]}>
+                      <View style={styles.packageCardHeader}>
+                        <Text style={[styles.packageCardTitle, { color: theme.text }]}>Season {index + 1}</Text>
+                        <TouchableOpacity onPress={() => deleteSeasonalPrice(season.id)}>
+                          <Ionicons name="trash" size={20} color={Palette.red} />
+                        </TouchableOpacity>
+                      </View>
+
+                      <View style={styles.packageFieldsGrid}>
+                        <View style={styles.packageField}>
+                          <Text style={[styles.label, { color: theme.text }]}>Season Name</Text>
+                          <TextInput
+                            style={[styles.input, { backgroundColor: theme.card, color: theme.text, borderColor: theme.border }]}
+                            placeholder="e.g., Summer Peak"
+                            placeholderTextColor={theme.textSecondary}
+                            value={season.seasonName}
+                            onChangeText={(value) => updateSeasonalPrice(season.id, "seasonName", value)}
+                          />
+                        </View>
+                        <View style={styles.packageField}>
+                          <Text style={[styles.label, { color: theme.text }]}>Start Date</Text>
+                          <TextInput
+                            style={[styles.input, { backgroundColor: theme.card, color: theme.text, borderColor: theme.border }]}
+                            placeholder="YYYY-MM-DD"
+                            placeholderTextColor={theme.textSecondary}
+                            value={season.startDate}
+                            onChangeText={(value) => updateSeasonalPrice(season.id, "startDate", value)}
+                          />
+                        </View>
+                        <View style={styles.packageField}>
+                          <Text style={[styles.label, { color: theme.text }]}>End Date</Text>
+                          <TextInput
+                            style={[styles.input, { backgroundColor: theme.card, color: theme.text, borderColor: theme.border }]}
+                            placeholder="YYYY-MM-DD"
+                            placeholderTextColor={theme.textSecondary}
+                            value={season.endDate}
+                            onChangeText={(value) => updateSeasonalPrice(season.id, "endDate", value)}
+                          />
+                        </View>
+                      </View>
+
+                      <View style={styles.packageFieldsGrid}>
+                        <View style={styles.packageField}>
+                          <Text style={[styles.label, { color: theme.text }]}>Rate Type</Text>
+                          <View style={[styles.dropdown, { backgroundColor: theme.card, borderColor: theme.border }]}>
+                            <TouchableOpacity
+                              style={styles.dropdownButton}
+                              onPress={() => setOpenDropdowns({ ...openDropdowns, [`seasonalRateType_${season.id}`]: !openDropdowns[`seasonalRateType_${season.id}`] })}
+                            >
+                              <Text style={[styles.dropdownButtonText, { color: theme.text }]}>{season.rateType}</Text>
+                              <Ionicons name={openDropdowns[`seasonalRateType_${season.id}`] ? "chevron-up" : "chevron-down"} size={20} color={theme.text} />
+                            </TouchableOpacity>
+                            {openDropdowns[`seasonalRateType_${season.id}`] && (
+                              <View style={[styles.dropdownMenu, { backgroundColor: theme.card, borderColor: theme.border }]}>
+                                {["Hourly", "Daily", "Package", "All"].map((type) => (
+                                  <TouchableOpacity
+                                    key={type}
+                                    style={styles.dropdownMenuItem}
+                                    onPress={() => {
+                                      updateSeasonalPrice(season.id, "rateType", type);
+                                      setOpenDropdowns({ ...openDropdowns, [`seasonalRateType_${season.id}`]: false });
+                                    }}
+                                  >
+                                    <Text style={[styles.dropdownMenuItemText, { color: theme.text }]}>{type}</Text>
+                                  </TouchableOpacity>
+                                ))}
+                              </View>
+                            )}
+                          </View>
+                        </View>
+                        <View style={styles.packageField}>
+                          <Text style={[styles.label, { color: theme.text }]}>Modifier Type</Text>
+                          <View style={[styles.dropdown, { backgroundColor: theme.card, borderColor: theme.border }]}>
+                            <TouchableOpacity
+                              style={styles.dropdownButton}
+                              onPress={() => setOpenDropdowns({ ...openDropdowns, [`modifierType_${season.id}`]: !openDropdowns[`modifierType_${season.id}`] })}
+                            >
+                              <Text style={[styles.dropdownButtonText, { color: theme.text }]}>{season.modifierType}</Text>
+                              <Ionicons name={openDropdowns[`modifierType_${season.id}`] ? "chevron-up" : "chevron-down"} size={20} color={theme.text} />
+                            </TouchableOpacity>
+                            {openDropdowns[`modifierType_${season.id}`] && (
+                              <View style={[styles.dropdownMenu, { backgroundColor: theme.card, borderColor: theme.border }]}>
+                                {["Fixed", "Percentage"].map((type) => (
+                                  <TouchableOpacity
+                                    key={type}
+                                    style={styles.dropdownMenuItem}
+                                    onPress={() => {
+                                      updateSeasonalPrice(season.id, "modifierType", type);
+                                      setOpenDropdowns({ ...openDropdowns, [`modifierType_${season.id}`]: false });
+                                    }}
+                                  >
+                                    <Text style={[styles.dropdownMenuItemText, { color: theme.text }]}>{type}</Text>
+                                  </TouchableOpacity>
+                                ))}
+                              </View>
+                            )}
+                          </View>
+                        </View>
+                        <View style={styles.packageField}>
+                          <Text style={[styles.label, { color: theme.text }]}>Modifier Value</Text>
+                          <TextInput
+                            style={[styles.input, { backgroundColor: theme.card, color: theme.text, borderColor: theme.border }]}
+                            placeholder="0.00"
+                            placeholderTextColor={theme.textSecondary}
+                            value={season.modifierValue}
+                            onChangeText={(value) => updateSeasonalPrice(season.id, "modifierValue", value)}
+                            keyboardType="decimal-pad"
+                          />
+                        </View>
+                      </View>
+                    </View>
+                  ))
+                ) : (
+                  <Text style={[styles.emptyText, { color: theme.textSecondary, textAlign: "center", marginVertical: 16 }]}>
+                    No seasonal pricing added yet
+                  </Text>
+                )}
               </View>
 
               {/* Contact Information Card */}
@@ -2644,42 +3248,90 @@ const styles = StyleSheet.create({
     fontSize: 12,
     marginTop: 4,
   },
-  imageUrlInputContainer: {
-    flexDirection: "row",
-    gap: 8,
-    marginBottom: 16,
-  },
-  imageUrlInput: {
-    flex: 1,
-    borderWidth: 1,
-    borderRadius: 8,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    fontSize: 14,
-  },
   addImageButton: {
-    flexDirection: "row",
-    alignItems: "center",
-    paddingHorizontal: 12,
-    paddingVertical: 10,
+    borderWidth: 2,
+    borderStyle: "dashed",
     borderRadius: 8,
-    gap: 4,
+    paddingVertical: 24,
+    paddingHorizontal: 16,
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: 16,
+    gap: 8,
   },
   addImageButtonText: {
-    fontSize: 13,
-    fontWeight: "600",
+    fontSize: 14,
+    fontWeight: "500",
   },
-  floorPlanInputContainer: {
+  imagesGrid: {
     flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 12,
+    marginTop: 8,
+  },
+  imageCard: {
+    borderRadius: 12,
+    overflow: 'hidden',
+    borderWidth: 2,
+    marginBottom: 12,
+  },
+  imagePreview: {
+    width: "100%",
+    height: 200,
+    resizeMode: "cover",
+  },
+  thumbnailPreviewContainer: {
+    width: "100%",
+    height: 280,
+    borderRadius: 12,
+    overflow: "hidden",
+    marginBottom: 16,
+    position: "relative",
+    backgroundColor: "#f0f0f0",
+  },
+  thumbnailPreview: {
+    width: "100%",
+    height: "100%",
+    resizeMode: "cover",
+  },
+  thumbnailPreviewBadge: {
+    position: "absolute",
+    bottom: 12,
+    right: 12,
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "rgba(76, 175, 80, 0.9)",
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 20,
+  },
+  removeImageButton: {
+    position: "absolute",
+    top: 8,
+    right: 8,
+    backgroundColor: "rgba(255, 255, 255, 0.9)",
+    borderRadius: 12,
+    padding: 6,
+  },
+  imageActions: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: 12,
+    paddingVertical: 8,
     gap: 8,
   },
-  floorPlanInput: {
+  thumbnailBadge: {
     flex: 1,
-    borderWidth: 1,
-    borderRadius: 8,
+    paddingVertical: 8,
     paddingHorizontal: 12,
-    paddingVertical: 10,
-    fontSize: 14,
+    borderRadius: 6,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  badgeText: {
+    fontSize: 12,
+    fontWeight: '600',
   },
   measurementGrid: {
     flexDirection: "row",
@@ -2846,21 +3498,6 @@ const styles = StyleSheet.create({
     minHeight: 100,
     textAlignVertical: "top",
   },
-  imageLinksContainer: {
-    gap: 8,
-  },
-  imageLinkItem: {
-    flexDirection: "row",
-    borderWidth: 1,
-    borderRadius: 8,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    alignItems: "center",
-    gap: 12,
-  },
-  imageLinkText: {
-    fontSize: 12,
-  },
   cardContainer: {
     borderWidth: 1,
     borderRadius: 12,
@@ -2992,5 +3629,58 @@ const styles = StyleSheet.create({
   modalConfirmButtonText: {
     fontSize: 14,
     fontWeight: "600",
+  },
+  specificationCard: {
+    flexDirection: "row",
+    borderWidth: 1,
+    borderRadius: 8,
+    padding: 12,
+    marginBottom: 12,
+    alignItems: "center",
+  },
+  specificationName: {
+    fontSize: 14,
+    fontWeight: "600",
+    marginBottom: 4,
+  },
+  specificationValue: {
+    fontSize: 13,
+    marginBottom: 4,
+  },
+  specificationNotes: {
+    fontSize: 12,
+    fontStyle: "italic",
+  },
+  dropdownButton: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    width: "100%",
+  },
+  dropdownButtonText: {
+    fontSize: 14,
+    flex: 1,
+  },
+  dropdownMenu: {
+    position: "absolute",
+    top: "100%",
+    left: 0,
+    right: 0,
+    borderWidth: 1,
+    borderTopWidth: 0,
+    borderBottomLeftRadius: 8,
+    borderBottomRightRadius: 8,
+    marginTop: 0,
+    zIndex: 1000,
+    maxHeight: 200,
+  },
+  dropdownMenuItem: {
+    paddingHorizontal: 12,
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: "rgba(0,0,0,0.1)",
+  },
+  dropdownMenuItemText: {
+    fontSize: 13,
   },
 });

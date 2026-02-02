@@ -1,18 +1,18 @@
 import type {
-    Venue,
-    VenueAdminAssignment,
-    VenueBaseRate,
-    VenueBlockedDate,
-    VenueContact,
-    VenueFacility,
-    VenueImage,
-    VenueOvertimeRate,
-    VenuePackage,
-    VenuePackageInclusion,
-    VenueRule,
-    VenueSeasonalPricing,
-    VenueType,
-    VenueWithDetails
+  Venue,
+  VenueAdminAssignment,
+  VenueBaseRate,
+  VenueBlockedDate,
+  VenueContact,
+  VenueFacility,
+  VenueImage,
+  VenueOvertimeRate,
+  VenuePackage,
+  VenuePackageInclusion,
+  VenueRule,
+  VenueSeasonalPricing,
+  VenueType,
+  VenueWithDetails
 } from '../models/types';
 import { supabase } from './supabase';
 
@@ -23,7 +23,10 @@ export const fetchVenues = async () => {
   try {
     const { data, error } = await supabase
       .from('venues')
-      .select('*')
+      .select(`
+        *,
+        venue_images(image_id, image_path, is_thumbnail)
+      `)
       .order('created_at', { ascending: false });
 
     if (error) throw error;
@@ -1117,6 +1120,12 @@ export const fetchCompleteVenueDetails = async (venueId: number) => {
       `)
       .eq('venue_id', venueId);
 
+    // 15. Fetch seasonal pricing
+    const { data: seasonalPricing } = await supabase
+      .from('venue_seasonal_pricing')
+      .select('*')
+      .eq('venue_id', venueId);
+
     console.log("🎉 fetchCompleteVenueDetails result:", {
       venue,
       specifications,
@@ -1132,6 +1141,7 @@ export const fetchCompleteVenueDetails = async (venueId: number) => {
       packageInclusions,
       rules,
       venueTypes,
+      seasonalPricing,
     });
 
     return {
@@ -1150,6 +1160,7 @@ export const fetchCompleteVenueDetails = async (venueId: number) => {
         packageInclusions,
         rules,
         venueTypes,
+        seasonalPricing,
       },
       error: null,
     };
