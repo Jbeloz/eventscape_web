@@ -101,6 +101,266 @@ export interface UserProfile extends User {
   venue_administrator?: VenueAdministrator;
 }
 
+// ===== VENUE TYPES =====
+
+// Venue Type Enums
+export type VenueTypeEnum = 'custom_venue' | 'affiliated_venue';
+export type ContactType = 'Email' | 'Phone';
+export type DoorType = 'Single' | 'Double';
+export type DoorCorner = 'Left' | 'Right' | 'Center';
+export type DoorSwing = 'Inward' | 'Outward';
+export type DoorHinge = 'Left' | 'Right';
+export type RateType = 'Hourly' | 'Daily';
+export type SeasonalRateType = 'Hourly' | 'Daily' | 'Package' | 'All';
+export type ModifierType = 'Fixed' | 'Percentage';
+export type PriceType = 'fixed' | 'per_pax';
+
+// Venue Base
+export interface Venue {
+  venue_id: number;
+  venue_name: string;
+  description: string;
+  street_address: string;
+  barangay: string;
+  city: string;
+  province: string;
+  zip_code: string;
+  country: string;
+  max_capacity: number;
+  created_by: number;
+  is_active: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+// Venue Type
+export interface VenueType {
+  venue_type_id: number;
+  type_name: string;
+  created_at: string;
+  updated_at: string;
+}
+
+// Venue Venue Types Junction
+export interface VenueVenueType {
+  venue_type_link_id: number;
+  venue_id: number;
+  venue_type_id: number;
+  created_at: string;
+  updated_at: string;
+}
+
+// Venue Contact
+export interface VenueContact {
+  contact_id: number;
+  venue_id: number;
+  contact_type: ContactType;
+  contact_value: string;
+  created_at: string;
+  updated_at: string;
+}
+
+// Venue Specification
+export interface VenueSpecification {
+  specification_id: number;
+  venue_id: number;
+  specification_name: string;
+  specification_value: string;
+  notes?: string;
+  created_at: string;
+  updated_at: string;
+}
+
+// Venue Allowed Event Types
+export interface VenueAllowedEventType {
+  venue_event_type_id: number;
+  venue_id: number;
+  category_id: number;
+  created_at: string;
+  updated_at: string;
+}
+
+// Venue Image
+export interface VenueImage {
+  image_id: number;
+  venue_id: number;
+  image_path: string;
+  is_thumbnail: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+// Venue Facility
+export interface VenueFacility {
+  facility_id: number;
+  venue_id: number;
+  facility_name: string;
+  description?: string;
+  created_at: string;
+  updated_at: string;
+}
+
+// Venue Rule
+export interface VenueRule {
+  rule_id: number;
+  venue_id: number;
+  rule_text: string;
+  is_active: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+// Venue Floor Plan
+export interface VenueFloorPlan {
+  floor_plan_id: number;
+  venue_id: number;
+  floor_plan_file: string;
+  floor_plan_type: string;
+  description?: string;
+  length: number;
+  width: number;
+  height: number;
+  area_sqm: number;
+  created_at: string;
+  updated_at: string;
+}
+
+// Venue Door
+export interface VenueDoor {
+  door_id: number;
+  venue_id: number;
+  door_type: DoorType;
+  width: number;
+  height: number;
+  door_offset: number;
+  corner_position: DoorCorner;
+  swing_direction: DoorSwing;
+  hinge_position: DoorHinge;
+  created_at: string;
+  updated_at: string;
+}
+
+// Venue Base Rate
+export interface VenueBaseRate {
+  rate_id: number;
+  venue_id: number;
+  rate_type: RateType;
+  base_price: number;
+  weekend_price: number;
+  holiday_price: number;
+  included_hours: number;
+  min_hours: number;
+  notes?: string;
+  is_active: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+// Venue Overtime Rate
+export interface VenueOvertimeRate {
+  overtime_rate_id: number;
+  venue_id: number;
+  rate_type: RateType;
+  start_hour: number;
+  end_hour?: number;
+  price_per_hour: number;
+  is_active: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+// Venue Package
+export interface VenuePackage {
+  package_id: number;
+  venue_id: number;
+  package_name: string;
+  description: string;
+  duration_hours: number;
+  duration_days?: number;
+  base_price: number;
+  min_hours: number;
+  notes?: string;
+  is_active: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+// Venue Package Inclusion
+export interface VenuePackageInclusion {
+  inclusion_id: number;
+  package_id: number;
+  inclusion_name: string;
+  is_active: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+// Venue Seasonal Pricing
+export interface VenueSeasonalPricing {
+  seasonal_price_id: number;
+  venue_id: number;
+  rate_type: SeasonalRateType;
+  package_id?: number;
+  season_name: string;
+  start_date: string;
+  end_date: string;
+  modifier_type: ModifierType;
+  modifier_value: number;
+  is_active: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+// Venue Admin Assignment
+export interface VenueAdminAssignment {
+  assignment_id: number;
+  venue_id: number;
+  venue_admin_id: number;
+  is_owner: boolean;
+  assigned_at: string;
+  revoked_at?: string;
+}
+
+// Venue Blocked Date
+export interface VenueBlockedDate {
+  blocked_id: number;
+  venue_id: number;
+  start_date: string;
+  end_date: string;
+  reason?: string;
+  blocked_by: number;
+  created_at: string;
+  updated_at: string;
+}
+
+// Venue Overtime Log
+export interface VenueOvertimeLog {
+  overtime_id: number;
+  venue_id: number;
+  overtime_date: string;
+  hours_added: number;
+  reason?: string;
+  venue_admin_id: number;
+  created_at: string;
+  updated_at: string;
+}
+
+// Extended Venue with Relations (optional)
+export interface VenueWithDetails extends Venue {
+  venue_types?: VenueType[];
+  contacts?: VenueContact[];
+  specifications?: VenueSpecification[];
+  images?: VenueImage[];
+  facilities?: VenueFacility[];
+  rules?: VenueRule[];
+  floor_plans?: VenueFloorPlan[];
+  doors?: VenueDoor[];
+  base_rates?: VenueBaseRate[];
+  overtime_rates?: VenueOvertimeRate[];
+  packages?: VenuePackage[];
+  blocked_dates?: VenueBlockedDate[];
+}
+
 // Form Data Types
 export interface CreateUserFormData {
   firstName: string;

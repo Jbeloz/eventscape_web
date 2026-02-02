@@ -54,7 +54,7 @@ export default function AdminSidebar({ isDarkMode, isOpen }: AdminSidebarProps) 
     },
     { 
       label: "Event Package Management", 
-      icon: "package-multiple", 
+      icon: "gift", 
       route: "/administrator_pages/event_package_management/event_package",
       hasDropdown: true,
       submenu: [
@@ -64,7 +64,7 @@ export default function AdminSidebar({ isDarkMode, isOpen }: AdminSidebarProps) 
     },
     { 
       label: "Service Management", 
-      icon: "service", 
+      icon: "tools", 
       route: "/administrator_pages/service_management/services",
       hasDropdown: true,
       submenu: [
