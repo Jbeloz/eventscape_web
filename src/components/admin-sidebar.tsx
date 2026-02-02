@@ -75,11 +75,11 @@ export default function AdminSidebar({ isDarkMode, isOpen }: AdminSidebarProps) 
     { 
       label: "Add Ons Management", 
       icon: "plus-circle-multiple", 
-      route: "/administrator_pages/addons_management/addons",
+      route: "/administrator_pages/add_ons_management/add_ons",
       hasDropdown: true,
       submenu: [
-        { label: "Add Ons", route: "/administrator_pages/addons_management/addons" },
-        { label: "Add Ons Category", route: "/administrator_pages/addons_management/addons_category" },
+        { label: "Add Ons", route: "/administrator_pages/add_ons_management/add_ons" },
+        { label: "Add Ons Category", route: "/administrator_pages/add_ons_management/add_ons_category" },
       ]
     },
     { 
@@ -143,8 +143,8 @@ export default function AdminSidebar({ isDarkMode, isOpen }: AdminSidebarProps) 
           }
         } else if (item.label === "Add Ons Management") {
           const addonsRoutes = [
-            "/administrator_pages/addons_management/addons",
-            "/administrator_pages/addons_management/addons_category",
+            "/administrator_pages/add_ons_management/add_ons",
+            "/administrator_pages/add_ons_management/add_ons_category",
           ];
           if (addonsRoutes.some(route => pathname === route)) {
             return item.label;
@@ -221,8 +221,8 @@ export default function AdminSidebar({ isDarkMode, isOpen }: AdminSidebarProps) 
     // For Add Ons Management
     if (item.label === "Add Ons Management") {
       const addonsRoutes = [
-        "/administrator_pages/addons_management/addons",
-        "/administrator_pages/addons_management/addons_category",
+        "/administrator_pages/add_ons_management/add_ons",
+        "/administrator_pages/add_ons_management/add_ons_category",
       ];
       return addonsRoutes.some(route => pathname === route);
     }
