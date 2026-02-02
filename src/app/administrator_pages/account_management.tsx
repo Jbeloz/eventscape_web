@@ -32,6 +32,7 @@ export default function AccountManagement() {
   const [error, setError] = useState<string | null>(null);
   const [roleDropdownOpen, setRoleDropdownOpen] = useState(false);
   const [availableRoles, setAvailableRoles] = useState<string[]>([
+    "All Roles",
     "Administrator",
     "Event Organizer",
     "Coordinator",
@@ -47,8 +48,8 @@ export default function AccountManagement() {
     contactNumber: "",
     role: "customer" as UserRole,
     // Role-specific fields
-    companyName: "",
-    companyAddress: "",
+    companyName: "Weekenders",
+    companyAddress: "Genzen Bldg. II, DRT Highway, Poblacion/Sto. Cristo, Pulilan, Bulacan",
     businessEmail: "",
     businessNumber: "",
     specialization: "",
@@ -60,34 +61,30 @@ export default function AccountManagement() {
   const [createdPassword, setCreatedPassword] = useState<string | null>(null);
   const [createdUserEmail, setCreatedUserEmail] = useState<string | null>(null);
   const [showSuccessModal, setShowSuccessModal] = useState(false);
+  const [validationError, setValidationError] = useState<string | null>(null);
+  const [isCheckingDuplicate, setIsCheckingDuplicate] = useState(false);
+  const [duplicateError, setDuplicateError] = useState<string | null>(null);
 
   const theme = isDarkMode ? Palette.dark : Palette.light;
-  // Generate random password with requirements:
-  // - Minimum of 8 characters
-  // - At least one uppercase letter
-  // - At least one lowercase letter
-  // - At least one number
-  // - At least one special character (!@#$%^&*)
+  
+  // Generate random password with requirements
   const generatePassword = () => {
     const uppercase = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
     const lowercase = "abcdefghijklmnopqrstuvwxyz";
     const numbers = "0123456789";
     const special = "!@#$%^&*";
 
-    // Ensure at least one of each requirement
     let password =
       uppercase[Math.floor(Math.random() * uppercase.length)] +
       lowercase[Math.floor(Math.random() * lowercase.length)] +
       numbers[Math.floor(Math.random() * numbers.length)] +
       special[Math.floor(Math.random() * special.length)];
 
-    // Fill the rest randomly from all characters
     const allChars = uppercase + lowercase + numbers + special;
     for (let i = password.length; i < 12; i++) {
       password += allChars[Math.floor(Math.random() * allChars.length)];
     }
 
-    // Shuffle the password to avoid predictable patterns
     return password
       .split("")
       .sort(() => Math.random() - 0.5)
@@ -100,18 +97,52 @@ export default function AccountManagement() {
     for (let i = 0; i < token.length; i++) {
       const char = token.charCodeAt(i);
       hash = ((hash << 5) - hash) + char;
-      hash = hash & hash; // Convert to 32-bit integer
+      hash = hash & hash;
     }
     return Math.abs(hash).toString(16).padStart(64, "0");
-    // Returns 64-character hex string
   };
 
-  // Validate phone number format (accepts various formats)
+  // Validate phone number format
   const isValidPhoneNumber = (phone: string): boolean => {
-    // Remove all non-digit characters
     const digitsOnly = phone.replace(/\D/g, '');
-    // Check if it has at least 10 digits and at most 15 digits
     return digitsOnly.length >= 10 && digitsOnly.length <= 15;
+  };
+
+  // Validate email format
+  const isValidEmail = (email: string): boolean => {
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    return emailRegex.test(email);
+  };
+
+  // Format name - capitalize first letter of each word
+  const formatName = (text: string): string => {
+    const cleaned = text.replace(/[^a-zA-Z\s]/g, '');
+    return cleaned
+      .toLowerCase()
+      .split(' ')
+      .map(word => word.charAt(0).toUpperCase() + word.slice(1))
+      .join(' ');
+  };
+
+  // Check if email already exists
+  const checkDuplicateEmail = async (email: string): Promise<boolean> => {
+    try {
+      setIsCheckingDuplicate(true);
+      const { data, error: checkError } = await supabase
+        .from("users")
+        .select("email")
+        .ilike("email", email.toLowerCase())
+        .limit(1);
+      
+      if (checkError) throw checkError;
+      
+      return (data && data.length > 0);
+    } catch (error) {
+      console.error("Error checking duplicate email:", error);
+      return false;
+    } finally {
+      setIsCheckingDuplicate(false);
+    }
   };
 
   // Reset form data
@@ -131,6 +162,8 @@ export default function AccountManagement() {
       roleDescription: "",
     });
     setModalMessage(null);
+    setValidationError(null);
+    setDuplicateError(null);
   };
 
   // Open create modal
@@ -161,8 +194,8 @@ export default function AccountManagement() {
         .single();
       if (data) {
         roleSpecificData = {
-          companyName: data.company_name || "",
-          companyAddress: data.company_address || "",
+          companyName: data.company_name || "Weekenders",
+          companyAddress: data.company_address || "Genzen Bldg. II, DRT Highway, Poblacion/Sto. Cristo, Pulilan, Bulacan",
           businessEmail: data.business_email || "",
           businessNumber: data.business_number || "",
         };
@@ -193,7 +226,7 @@ export default function AccountManagement() {
     }
 
     setFormData({
-      firstName: user.name.split(" ")[0],
+      firstName: user.name.split(" ")[0] || "",
       lastName: user.name.split(" ")[1] || "",
       email: user.email,
       contactNumber: user.contact === "N/A" ? "" : user.contact,
@@ -225,23 +258,154 @@ export default function AccountManagement() {
     resetForm();
   };
 
+  // Handle first name change
+  const handleFirstNameChange = (text: string) => {
+    const formatted = formatName(text);
+    setFormData({ ...formData, firstName: formatted });
+    setValidationError(null);
+  };
+
+  // Handle last name change
+  const handleLastNameChange = (text: string) => {
+    const formatted = formatName(text);
+    setFormData({ ...formData, lastName: formatted });
+    setValidationError(null);
+  };
+
+  // Handle email change with duplicate checking
+  const handleEmailChange = async (text: string) => {
+    setFormData({ ...formData, email: text.toLowerCase() });
+    setValidationError(null);
+    
+    if (duplicateError) {
+      setDuplicateError(null);
+    }
+    
+    if (text.trim().length >= 3) {
+      if (isValidEmail(text)) {
+        const isDuplicate = await checkDuplicateEmail(text);
+        if (isDuplicate) {
+          setDuplicateError(`Email "${text}" already exists. Please use a different email.`);
+        } else {
+          setDuplicateError(null);
+        }
+      }
+    }
+  };
+
+  // Handle email blur - final validation
+  const handleEmailBlur = async () => {
+    if (formData.email.trim()) {
+      if (isValidEmail(formData.email)) {
+        const isDuplicate = await checkDuplicateEmail(formData.email);
+        if (isDuplicate) {
+          setDuplicateError(`Email "${formData.email}" already exists. Please use a different email.`);
+        }
+      }
+    }
+  };
+
+  // Validate form
+  const validateForm = () => {
+    setValidationError(null);
+    setDuplicateError(null);
+
+    if (!formData.firstName.trim()) {
+      setValidationError("First name is required.");
+      return false;
+    }
+
+    if (formData.firstName.trim().length < 2) {
+      setValidationError("First name must be at least 2 characters long.");
+      return false;
+    }
+
+    if (!formData.lastName.trim()) {
+      setValidationError("Last name is required.");
+      return false;
+    }
+
+    if (formData.lastName.trim().length < 2) {
+      setValidationError("Last name must be at least 2 characters long.");
+      return false;
+    }
+
+    if (!formData.email.trim()) {
+      setValidationError("Email is required.");
+      return false;
+    }
+
+    if (!isValidEmail(formData.email)) {
+      setValidationError("Please enter a valid email address.");
+      return false;
+    }
+
+    if (formData.contactNumber && !isValidPhoneNumber(formData.contactNumber)) {
+      setValidationError("Please enter a valid phone number (10-15 digits).");
+      return false;
+    }
+
+    // Role-specific validations
+    if (formData.role === "event_organizer") {
+      if (formData.businessEmail && !isValidEmail(formData.businessEmail)) {
+        setValidationError("Please enter a valid business email address.");
+        return false;
+      }
+      if (formData.businessNumber && !isValidPhoneNumber(formData.businessNumber)) {
+        setValidationError("Please enter a valid business phone number (10-15 digits).");
+        return false;
+      }
+    }
+
+    return true;
+  };
+
+  // Check if create form is valid
+  const isCreateFormValid = () => {
+    return formData.firstName.trim() && 
+           formData.lastName.trim() && 
+           formData.email.trim() &&
+           isValidEmail(formData.email) &&
+           (!formData.contactNumber || isValidPhoneNumber(formData.contactNumber)) &&
+           !validationError &&
+           !duplicateError;
+  };
+
+  // Check if edit form has changes
+  const hasEditChanges = () => {
+    if (!selectedUser) return false;
+
+    const currentFirstName = selectedUser.name.split(" ")[0] || "";
+    const currentLastName = selectedUser.name.split(" ")[1] || "";
+    const currentContact = selectedUser.contact === "N/A" ? "" : selectedUser.contact;
+
+    if (formData.firstName !== currentFirstName) return true;
+    if (formData.lastName !== currentLastName) return true;
+    if (formData.contactNumber !== currentContact) return true;
+
+    return false;
+  };
+
   // Create user
   const handleCreateUser = async () => {
-    if (!formData.firstName || !formData.lastName || !formData.email) {
-      setModalMessage({ type: "error", text: "Please fill all required fields" });
+    if (!validateForm()) {
       return;
     }
 
-    // Validate email format
-    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-    if (!emailRegex.test(formData.email)) {
-      setModalMessage({ type: "error", text: "Please enter a valid email address" });
-      return;
-    }
-
-    // Validate phone number if provided
-    if (formData.contactNumber && !isValidPhoneNumber(formData.contactNumber)) {
-      setModalMessage({ type: "error", text: "Please enter a valid phone number (10-15 digits)" });
+    // Final duplicate check
+    try {
+      setIsCheckingDuplicate(true);
+      const isDuplicate = await checkDuplicateEmail(formData.email);
+      
+      if (isDuplicate) {
+        setDuplicateError(`Email "${formData.email}" already exists. Please use a different email.`);
+        setIsCheckingDuplicate(false);
+        return;
+      }
+    } catch (error) {
+      console.error("Error checking duplicate:", error);
+      setModalMessage({ type: "error", text: "Failed to validate email. Please try again." });
+      setIsCheckingDuplicate(false);
       return;
     }
 
@@ -249,29 +413,6 @@ export default function AccountManagement() {
       setSubmitLoading(true);
       const password = generatePassword();
       const roleKey = formData.role as UserRole;
-
-      // Check if user already exists in database
-      const { data: existingUser, error: checkError } = await supabase
-        .from("users")
-        .select("auth_id")
-        .eq("email", formData.email.toLowerCase())
-        .single();
-
-      if (existingUser) {
-        setModalMessage({ type: "error", text: "User with this email already exists" });
-        setSubmitLoading(false);
-        return;
-      }
-
-      // Also check if user exists in Supabase Auth
-      const { data: authUsers, error: authCheckError } = await supabase.auth.admin.listUsers();
-      if (authCheckError) {
-        console.error("Auth check error:", authCheckError);
-      } else if (authUsers?.users?.some(u => u.email?.toLowerCase() === formData.email.toLowerCase())) {
-        setModalMessage({ type: "error", text: "Email already registered in authentication system" });
-        setSubmitLoading(false);
-        return;
-      }
 
       // Create user in Supabase Auth
       const { data: authData, error: authError } = await supabase.auth.signUp({
@@ -352,65 +493,40 @@ export default function AccountManagement() {
       }
 
       // Create email verification record
-      // Step 1: Generate unique email verification token hash
       const emailTokenHash = hashToken(`${formData.email}-${Date.now()}-${Math.random()}`);
-      // Uses: email + timestamp + random number to ensure uniqueness
-
-      // Step 2: Use same expiry time as OTP (10 minutes)
       const expiryTime = new Date(Date.now() + 10 * 60 * 1000);
       const now = new Date().toISOString();
 
-      // Step 3: Insert into database
-      const { error: emailVerifError } = await supabase.from("email_verification").insert({
-        user_id: userId, // ← Foreign key to users table
-        email_token_hash: emailTokenHash, // ← Hashed unique token
-        expires_at: expiryTime.toISOString(), // ← ISO string format (same as OTP)
-        is_verified: true, // ← Not verified yet
+      await supabase.from("email_verification").insert({
+        user_id: userId,
+        email_token_hash: emailTokenHash,
+        expires_at: expiryTime.toISOString(),
+        is_verified: true,
         last_token_sent: now,
       });
 
-      if (emailVerifError) {
-        setModalMessage({ type: "error", text: "Failed to create email verification record" });
-        setSubmitLoading(false);
-        return;
-      }
-
       // Create OTP record
-      // Step 1: Generate 6-digit OTP code
       const otpCode = Math.floor(100000 + Math.random() * 900000).toString();
-
-      // Step 2: Hash the OTP code using custom hash function
       const otpHash = hashToken(otpCode);
+      const otpExpiryTime = new Date(Date.now() + 10 * 60 * 1000);
 
-      // Step 3: Calculate expiry time (10 minutes from now)
-      const otpExpiryTime = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes
-
-      // Step 4: Insert into database
-      const { error: otpInsertError } = await supabase.from("otp").insert({
-        user_id: userId, // ← Foreign key to users table
-        otp_code_hash: otpHash, // ← Hashed 6-digit code
-        otp_expiry: otpExpiryTime.toISOString(), // ← ISO string format
-        otp_attempts: 0, // ← Starts at 0
+      await supabase.from("otp").insert({
+        user_id: userId,
+        otp_code_hash: otpHash,
+        otp_expiry: otpExpiryTime.toISOString(),
+        otp_attempts: 0,
         last_otp_sent: now,
       });
-
-      if (otpInsertError) {
-        setModalMessage({ type: "error", text: "Failed to create OTP record" });
-        setSubmitLoading(false);
-        return;
-      }
 
       // Show success modal with password
       setCreatedPassword(password);
       setCreatedUserEmail(formData.email);
-      setModalType(null); // Close the create modal first
+      setModalType(null);
       
-      // Show success modal after a brief delay
       setTimeout(() => {
         setShowSuccessModal(true);
       }, 300);
       
-      // Refresh users list
       setTimeout(() => {
         fetchUsers();
       }, 500);
@@ -418,25 +534,18 @@ export default function AccountManagement() {
       setModalMessage({ type: "error", text: err.message || "Failed to create user" });
     } finally {
       setSubmitLoading(false);
+      setIsCheckingDuplicate(false);
     }
   };
 
   // Update user
   const handleEditUser = async () => {
-    if (!formData.firstName || !formData.lastName) {
-      setModalMessage({ type: "error", text: "Please fill all required fields" });
-      return;
-    }
-
-    // Validate phone number if provided
-    if (formData.contactNumber && !isValidPhoneNumber(formData.contactNumber)) {
-      setModalMessage({ type: "error", text: "Please enter a valid phone number (10-15 digits)" });
+    if (!validateForm()) {
       return;
     }
 
     try {
       setSubmitLoading(true);
-      const roleKey = formData.role as UserRole;
 
       // Update users table
       const { error: updateError } = await supabase
@@ -455,6 +564,8 @@ export default function AccountManagement() {
       }
 
       // Update role-specific records
+      const roleKey = formData.role as UserRole;
+      
       if (roleKey === "event_organizer") {
         const { data: existing } = await supabase
           .from("event_organizers")
@@ -472,14 +583,6 @@ export default function AccountManagement() {
               business_number: formData.businessNumber || null,
             })
             .eq("user_id", selectedUser.id);
-        } else {
-          await supabase.from("event_organizers").insert({
-            user_id: selectedUser.id,
-            company_name: formData.companyName || null,
-            company_address: formData.companyAddress || null,
-            business_email: formData.businessEmail || null,
-            business_number: formData.businessNumber || null,
-          });
         }
       } else if (roleKey === "coordinator") {
         const { data: existing } = await supabase
@@ -511,18 +614,11 @@ export default function AccountManagement() {
               role_description: formData.roleDescription || "",
             })
             .eq("user_id", selectedUser.id);
-        } else {
-          await supabase.from("administrators").insert({
-            user_id: selectedUser.id,
-            position: formData.position || "System Administrator",
-            role_description: formData.roleDescription || "",
-          });
         }
       }
 
       setModalMessage({ type: "success", text: "User updated successfully!" });
 
-      // Refresh users list after 1.5 seconds
       setTimeout(() => {
         fetchUsers();
         closeModal();
@@ -552,7 +648,6 @@ export default function AccountManagement() {
 
       setModalMessage({ type: "success", text: "User deleted successfully!" });
 
-      // Refresh users list after 1.5 seconds
       setTimeout(() => {
         fetchUsers();
         closeModal();
@@ -564,7 +659,7 @@ export default function AccountManagement() {
     }
   };
 
-  // Fetch users function (extracted for reuse)
+  // Fetch users function
   const fetchUsers = async () => {
     try {
       setLoading(true);
@@ -580,17 +675,14 @@ export default function AccountManagement() {
       }
 
       if (data) {
-        // Fetch additional data for each user
         const usersWithDetails = await Promise.all(
           data.map(async (user: any) => {
-            // Fetch email verification status
             const { data: emailVerif } = await supabase
               .from("email_verification")
               .select("is_verified")
               .eq("user_id", user.user_id)
               .single();
 
-            // Fetch user photo - get the first uploaded photo for the user
             const { data: userPhoto } = await supabase
               .from("user_photos")
               .select("file_url, profile_photo")
@@ -652,7 +744,7 @@ export default function AccountManagement() {
       user.email.toLowerCase().includes(searchText.toLowerCase()) ||
       user.contact.toLowerCase().includes(searchText.toLowerCase());
 
-    const matchesRole = roleFilter === null || user.role === roleFilter;
+    const matchesRole = !roleFilter || roleFilter === "All Roles" || user.role === roleFilter;
 
     return matchesSearch && matchesRole;
   });
@@ -674,6 +766,21 @@ export default function AccountManagement() {
     }
   };
 
+  if (loading) {
+    return (
+      <View style={[styles.container, { backgroundColor: theme.bg }]}>
+        <AdminHeader isDarkMode={isDarkMode} onThemeToggle={toggleTheme} onSidebarToggle={() => setSidebarOpen(!sidebarOpen)} />
+        <View style={styles.mainContainer}>
+          <AdminSidebar isDarkMode={isDarkMode} isOpen={sidebarOpen} />
+          <View style={styles.loadingContainer}>
+            <ActivityIndicator size="large" color={Palette.primary} />
+            <Text style={[styles.loadingText, { color: theme.text }]}>Loading users...</Text>
+          </View>
+        </View>
+      </View>
+    );
+  }
+
   return (
     <View style={[styles.container, { backgroundColor: theme.bg }]}>
       {/* Header */}
@@ -688,264 +795,529 @@ export default function AccountManagement() {
         <AdminSidebar isDarkMode={isDarkMode} isOpen={sidebarOpen} />
 
         <ScrollView style={[styles.content, { backgroundColor: theme.bg }]}>
-        {/* Title Section */}
-        <View style={styles.titleSection}>
-          <View>
-            <Text style={[styles.pageTitle, { color: theme.text }]}>Account Management</Text>
-            <Text style={[styles.subtitle, { color: theme.textSecondary }]}>
-              Create and manage user accounts
-            </Text>
-          </View>
-
-          <TouchableOpacity style={[styles.createButton, { backgroundColor: Palette.primary }]} onPress={openCreateModal}>
-            <MaterialCommunityIcons name="plus" size={20} color={Palette.black} />
-            <Text style={styles.createButtonText}>Create Account</Text>
-          </TouchableOpacity>
-        </View>
-
-        {/* Search & Filter Bar */}
-        <View style={styles.filterSection}>
-          <View style={[styles.searchBox, { backgroundColor: theme.card, borderColor: theme.border, flex: 2 }]}>
-            <Ionicons name="search" size={20} color={theme.textSecondary} />
-            <TextInput
-              style={[styles.searchInput, { color: theme.text }]}
-              placeholder="Search by name, email, or contact..."
-              placeholderTextColor={theme.textSecondary}
-              value={searchText}
-              onChangeText={setSearchText}
-            />
-          </View>
-
-          {/* Role Filter Dropdown */}
-          <View style={{ flex: 1, marginLeft: 12, zIndex: 1000, overflow: "visible" }}>
-            <TouchableOpacity
-              style={[styles.filterButton, { backgroundColor: theme.card, borderColor: theme.border }]}
-              onPress={() => setRoleDropdownOpen(!roleDropdownOpen)}
-            >
-              <Ionicons name="filter" size={18} color={theme.textSecondary} />
-              <Text style={[styles.filterButtonText, { color: theme.text }]}>
-                {roleFilter ? roleFilter : "All Roles"}
+          {/* Title Section */}
+          <View style={styles.titleSection}>
+            <View>
+              <Text style={[styles.pageTitle, { color: theme.text }]}>Account Management</Text>
+              <Text style={[styles.subtitle, { color: theme.textSecondary }]}>
+                Create and manage user accounts
               </Text>
-              <Ionicons name={roleDropdownOpen ? "chevron-up" : "chevron-down"} size={16} color={theme.textSecondary} />
-            </TouchableOpacity>
-            {roleDropdownOpen && (
-              <View style={[styles.dropdownMenu, { backgroundColor: theme.card, borderColor: theme.border }]}>
-                <TouchableOpacity
-                  style={styles.dropdownItem}
-                  onPress={() => {
-                    setRoleFilter(null);
-                    setRoleDropdownOpen(false);
-                  }}
-                >
-                  <Text style={[styles.dropdownItemText, { color: roleFilter === null ? Palette.primary : theme.text }]}>
-                    All Roles
-                  </Text>
-                </TouchableOpacity>
-                {availableRoles.map((role) => (
-                  <TouchableOpacity
-                    key={role}
-                    style={styles.dropdownItem}
-                    onPress={() => {
-                      setRoleFilter(role);
-                      setRoleDropdownOpen(false);
-                    }}
-                  >
-                    <Text style={[styles.dropdownItemText, { color: roleFilter === role ? Palette.primary : theme.text }]}>
-                      {role}
-                    </Text>
-                  </TouchableOpacity>
-                ))}
-              </View>
-            )}
-          </View>
-        </View>
+            </View>
 
-        {/* Users Table */}
-        {loading ? (
-          <View style={[styles.loadingContainer, { backgroundColor: theme.card }]}>
-            <ActivityIndicator size="large" color={Palette.primary} />
-            <Text style={[styles.loadingText, { color: theme.text }]}>Loading users...</Text>
-          </View>
-        ) : error ? (
-          <View style={[styles.errorContainer, { backgroundColor: theme.card }]}>
-            <Text style={[styles.errorText, { color: "#dc3545" }]}>Error: {error}</Text>
-          </View>
-        ) : filteredUsers.length === 0 ? (
-          <View style={[styles.emptyContainer, { backgroundColor: theme.card }]}>
-            <Text style={[styles.emptyText, { color: theme.textSecondary }]}>No users found</Text>
-          </View>
-        ) : (
-        <ScrollView horizontal showsHorizontalScrollIndicator={true}>
-        <View style={[styles.tableContainer, { backgroundColor: theme.card, minWidth: 1200 }]}>
-          <View style={[styles.tableHeader, { backgroundColor: theme.lightBg, borderBottomColor: theme.border }]}>
-            <Text style={[styles.columnHeader, { color: isDarkMode ? "#1a1a1a" : theme.text, flex: 1.8 }]}>Full Name</Text>
-            <Text style={[styles.columnHeader, { color: isDarkMode ? "#1a1a1a" : theme.text, flex: 1.2 }]}>Role</Text>
-            <Text style={[styles.columnHeader, { color: isDarkMode ? "#1a1a1a" : theme.text, flex: 1.5, width: 200 }]}>Email</Text>
-            <Text style={[styles.columnHeader, { color: isDarkMode ? "#1a1a1a" : theme.text, flex: 0.8, textAlign: 'center' }]}>Contact</Text>
-            <Text style={[styles.columnHeader, { color: isDarkMode ? "#1a1a1a" : theme.text, flex: 0.8, textAlign: 'center' }]}>Verified</Text>
-            <Text style={[styles.columnHeader, { color: isDarkMode ? "#1a1a1a" : theme.text, flex: 0.8, textAlign: 'center' }]}>Status</Text>
-            <Text style={[styles.columnHeader, { color: isDarkMode ? "#1a1a1a" : theme.text, flex: 0.8, textAlign: 'center' }]}>Actions</Text>
-          </View>
-
-          {filteredUsers.map((user) => (
-            <View
-              key={user.id}
-              style={[
-                styles.tableRow,
-                { borderBottomColor: theme.lightBg, backgroundColor: theme.card },
-              ]}
+            <TouchableOpacity 
+              style={[styles.createButton, { backgroundColor: Palette.primary }]} 
+              onPress={openCreateModal}
             >
-              {/* Name Column with Photo */}
-              <View style={[styles.nameColumn, { flex: 1.8 }]}>
-                {user.profilePhoto ? (
-                  <Image
-                    source={{ uri: user.profilePhoto }}
-                    style={[styles.avatar, { borderRadius: 18 }]}
-                  />
-                ) : (
-                  <View style={styles.avatar}>
-                    <Text style={styles.avatarText}>{user.initials}</Text>
-                  </View>
-                )}
-                <Text style={[styles.cellText, { color: theme.text }]}>{user.name}</Text>
-              </View>
+              <MaterialCommunityIcons name="plus" size={20} color={Palette.black} />
+              <Text style={styles.createButtonText}>Create Account</Text>
+            </TouchableOpacity>
+          </View>
 
-              {/* Role Column */}
-              <View style={[styles.roleColumn, { flex: 1.2 }]}>
-                <View
-                  style={[
-                    styles.roleBadge,
-                    { backgroundColor: getRoleBadgeColor(user.role) + "20" },
-                  ]}
-                >
-                  <Text style={[styles.roleBadgeText, { color: getRoleBadgeColor(user.role) }]}>
-                    {user.role}
-                  </Text>
+          {error && (
+            <View style={[styles.errorBox, { borderColor: Palette.red, backgroundColor: isDarkMode ? '#3f1f1f' : '#ffefef' }]}> 
+              <Text style={{ color: Palette.red, fontSize: 13, fontFamily: 'Poppins-Regular' }}>{error}</Text>
+            </View>
+          )}
+
+          {/* Search & Filter Bar */}
+          <View style={[styles.filterSection, { zIndex: 100 }]}>
+            <View style={[styles.searchBox, { backgroundColor: theme.card, borderColor: theme.border }]}>
+              <Ionicons name="search" size={18} color={theme.textSecondary} />
+              <TextInput
+                style={[styles.searchInput, { color: theme.text }]}
+                placeholder="Search by name, email, or contact..."
+                placeholderTextColor={theme.textSecondary}
+                value={searchText}
+                onChangeText={setSearchText}
+              />
+            </View>
+
+            <View style={styles.filterDropdownContainer}>
+              <TouchableOpacity
+                style={[styles.filterButton, { backgroundColor: theme.card, borderColor: theme.border }]}
+                onPress={() => setRoleDropdownOpen(!roleDropdownOpen)}
+              >
+                <Text style={[styles.filterButtonText, { color: theme.text }]}>
+                  {roleFilter || "All Roles"}
+                </Text>
+                <Ionicons name={roleDropdownOpen ? "chevron-up" : "chevron-down"} size={18} color={theme.textSecondary} />
+              </TouchableOpacity>
+
+              {roleDropdownOpen && (
+                <View style={[
+                  styles.dropdownMenu, 
+                  { 
+                    backgroundColor: theme.card, 
+                    borderColor: theme.border,
+                    zIndex: 1000,
+                  }
+                ]}>
+                  <ScrollView style={{ maxHeight: 150 }}>
+                    {availableRoles.map((role) => (
+                      <TouchableOpacity
+                        key={role}
+                        style={styles.dropdownItem}
+                        onPress={() => {
+                          setRoleFilter(role === "All Roles" ? null : role);
+                          setRoleDropdownOpen(false);
+                        }}
+                      >
+                        <Text style={[
+                          styles.dropdownItemText, 
+                          { 
+                            color: roleFilter === role || (role === "All Roles" && !roleFilter) ? Palette.primary : theme.text 
+                          }
+                        ]}>
+                          {role}
+                        </Text>
+                      </TouchableOpacity>
+                    ))}
+                  </ScrollView>
                 </View>
+              )}
+            </View>
+          </View>
+
+          {/* Users Table */}
+          <View style={[
+            styles.tableContainer, 
+            { 
+              backgroundColor: theme.card, 
+              borderColor: theme.border 
+            }
+          ]}>
+            <View style={[
+              styles.tableHeader, 
+              { 
+                backgroundColor: theme.lightBg, 
+                borderColor: theme.border 
+              }
+            ]}>
+              <View style={[styles.columnHeaderWrapper, { flex: 1.5 }]}>
+                <Text style={[styles.columnHeader, { color: theme.text }]}>Full Name</Text>
               </View>
-
-              {/* Email Column */}
-              <Text style={[styles.cellText, { color: theme.text, width: 200 }]}>{user.email}</Text>
-
-              {/* Contact Column */}
-              <Text style={[styles.cellText, { color: theme.text, flex: 0.8, textAlign: 'center' }]}>{user.contact}</Text>
-
-              {/* Email Verified Column */}
-              <View style={[styles.verificationColumn, { flex: 0.8 }]}>
-                {user.emailVerified ? (
-                  <Ionicons name="checkmark-circle" size={20} color="#28a745" />
-                ) : (
-                  <Ionicons name="close-circle" size={20} color="#dc3545" />
-                )}
+              <View style={[styles.columnHeaderWrapper, { flex: 1.2 }]}>
+                <Text style={[styles.columnHeader, { color: theme.text }]}>Role</Text>
               </View>
-
-              {/* Status Column */}
-              <View style={[styles.statusColumn, { flex: 0.8 }]}>
-                <Switch
-                  value={user.status}
-                  onValueChange={() => toggleUserStatus(user.id)}
-                  trackColor={{ false: Palette.gray500, true: Palette.primary }}
-                  thumbColor={user.status ? Palette.primary : Palette.gray300}
-                />
+              <View style={[styles.columnHeaderWrapper, { flex: 1.5 }]}>
+                <Text style={[styles.columnHeader, { color: theme.text }]}>Email</Text>
               </View>
-
-              {/* Actions Column */}
-              <View style={[styles.actionsColumn, { flex: 0.8 }]}>
-                <TouchableOpacity style={styles.actionIcon} onPress={() => openViewModal(user)}>
-                  <Ionicons name="eye" size={18} color={Palette.black} />
-                </TouchableOpacity>
-                <TouchableOpacity style={styles.actionIcon} onPress={() => openEditModal(user)}>
-                  <Ionicons name="pencil" size={18} color={Palette.blue} />
-                </TouchableOpacity>
-                <TouchableOpacity style={styles.actionIcon} onPress={() => openDeleteModal(user)}>
-                  <Ionicons name="trash" size={18} color={Palette.red} />
-                </TouchableOpacity>
+              <View style={[styles.columnHeaderWrapper, { flex: 1 }]}>
+                <Text style={[styles.columnHeader, { color: theme.text }]}>Contact</Text>
+              </View>
+              <View style={[styles.columnHeaderWrapper, { flex: 0.8, justifyContent: "center", alignItems: "center" }]}>
+                <Text style={[styles.columnHeader, { color: theme.text }]}>Verified</Text>
+              </View>
+              <View style={[styles.columnHeaderWrapper, { flex: 0.8, justifyContent: "center", alignItems: "center" }]}>
+                <Text style={[styles.columnHeader, { color: theme.text }]}>Status</Text>
+              </View>
+              <View style={[styles.columnHeaderWrapper, { flex: 1, justifyContent: "center", alignItems: "center" }]}>
+                <Text style={[styles.columnHeader, { color: theme.text }]}>Actions</Text>
               </View>
             </View>
-          ))}
-        </View>
-        </ScrollView>
-        )}
+
+            {filteredUsers.length === 0 ? (
+              <View style={[styles.emptyContainer, { backgroundColor: theme.card }]}>
+                <Ionicons name="search" size={48} color={theme.textSecondary} />
+                <Text style={[styles.emptyText, { color: theme.text }]}>
+                  {searchText || roleFilter ? "No users found" : "No users available"}
+                </Text>
+              </View>
+            ) : (
+              filteredUsers.map((user) => (
+                <View key={user.id} style={[styles.tableRow, { borderColor: theme.border }]}>
+                  {/* Name Column with Photo */}
+                  <View style={[styles.nameColumn, { flex: 1.5 }]}>
+                    {user.profilePhoto ? (
+                      <Image
+                        source={{ uri: user.profilePhoto }}
+                        style={styles.avatar}
+                      />
+                    ) : (
+                      <View style={[styles.avatar, { backgroundColor: Palette.primary }]}>
+                        <Text style={styles.avatarText}>{user.initials}</Text>
+                      </View>
+                    )}
+                    <Text style={[styles.cellText, { color: theme.text, fontWeight: "500" }]} numberOfLines={1}>
+                      {user.name}
+                    </Text>
+                  </View>
+
+                  {/* Role Column */}
+                  <View style={[styles.roleColumn, { flex: 1.2 }]}>
+                    <View
+                      style={[
+                        styles.roleBadge,
+                        { backgroundColor: getRoleBadgeColor(user.role) + "20" },
+                      ]}
+                    >
+                      <Text style={[styles.roleBadgeText, { color: getRoleBadgeColor(user.role) }]}>
+                        {user.role}
+                      </Text>
+                    </View>
+                  </View>
+
+                  {/* Email Column */}
+                  <View style={[styles.cellWrapper, { flex: 1.5 }]}>
+                    <Text style={[styles.cellText, { color: theme.textSecondary }]} numberOfLines={1}>
+                      {user.email}
+                    </Text>
+                  </View>
+
+                  {/* Contact Column */}
+                  <View style={[styles.cellWrapper, { flex: 1 }]}>
+                    <Text style={[styles.cellText, { color: theme.textSecondary }]} numberOfLines={1}>
+                      {user.contact}
+                    </Text>
+                  </View>
+
+                  {/* Email Verified Column */}
+                  <View style={[styles.verificationColumn, { flex: 0.8 }]}>
+                    {user.emailVerified ? (
+                      <Ionicons name="checkmark-circle" size={20} color="#28a745" />
+                    ) : (
+                      <Ionicons name="close-circle" size={20} color="#dc3545" />
+                    )}
+                  </View>
+
+                  {/* Status Column */}
+                  <View style={[styles.statusColumn, { flex: 0.8 }]}>
+                    <Switch
+                      value={user.status}
+                      onValueChange={() => toggleUserStatus(user.id)}
+                      trackColor={{ false: theme.textSecondary, true: Palette.gray700 }}
+                      thumbColor={user.status ? Palette.white : Palette.black}
+                    />
+                  </View>
+
+                  {/* Actions Column */}
+                  <View style={[styles.actionsColumn, { flex: 1 }]}>
+                    <View style={styles.actionButtons}>
+                      <TouchableOpacity 
+                        style={styles.actionIcon} 
+                        onPress={() => openViewModal(user)}
+                      >
+                        <Ionicons name="eye" size={18} color={Palette.blue} />
+                      </TouchableOpacity>
+                      <TouchableOpacity 
+                        style={styles.actionIcon} 
+                        onPress={() => openEditModal(user)}
+                      >
+                        <Ionicons name="pencil" size={18} color={Palette.primary} />
+                      </TouchableOpacity>
+                      <TouchableOpacity 
+                        style={styles.actionIcon} 
+                        onPress={() => openDeleteModal(user)}
+                      >
+                        <Ionicons name="trash" size={18} color={Palette.red} />
+                      </TouchableOpacity>
+                    </View>
+                  </View>
+                </View>
+              ))
+            )}
+          </View>
         </ScrollView>
       </View>
 
       {/* CREATE MODAL */}
-      <Modal visible={modalType === "create"} transparent animationType="fade">
+      <Modal 
+        visible={modalType === "create"} 
+        transparent 
+        animationType="fade"
+        onRequestClose={closeModal}
+      >
         <View style={styles.modalOverlay}>
-          <View style={[styles.modalContent, { backgroundColor: theme.card }]}>
+          <TouchableOpacity 
+            style={styles.modalBackdrop}
+            activeOpacity={1}
+            onPress={closeModal}
+          />
+          <View style={[
+            styles.modalContent, 
+            { 
+              backgroundColor: theme.card,
+              width: "95%",
+              maxHeight: "85%"
+            }
+          ]}>
             <View style={styles.modalHeader}>
-              <Text style={[styles.modalTitle, { color: theme.text }]}>Create Account</Text>
+              <View>
+                <Text style={[styles.modalTitle, { color: theme.text }]}>Create Account</Text>
+                <Text style={[styles.modalSubtitle, { color: theme.textSecondary }]}>
+                  Create a new user account
+                </Text>
+              </View>
               <TouchableOpacity onPress={closeModal}>
                 <Ionicons name="close" size={24} color={theme.text} />
               </TouchableOpacity>
             </View>
 
             {modalMessage && (
-              <View style={[styles.modalMessage, modalMessage.type === "error" ? styles.errorMessage : styles.successMessage]}>
-                <Ionicons name={modalMessage.type === "error" ? "close-circle" : "checkmark-circle"} size={18} color={modalMessage.type === "error" ? "#dc3545" : "#28a745"} />
-                <Text style={[styles.messageText, { color: modalMessage.type === "error" ? "#721c24" : "#155724" }]}>{modalMessage.text}</Text>
+              <View style={[
+                styles.modalMessage, 
+                modalMessage.type === "error" ? styles.errorMessage : styles.successMessage
+              ]}>
+                <Ionicons name={modalMessage.type === "error" ? "close-circle" : "checkmark-circle"} size={18} color={modalMessage.type === "error" ? Palette.red : Palette.green} />
+                <Text style={[
+                  styles.messageText, 
+                  { color: modalMessage.type === "error" ? Palette.red : Palette.green }
+                ]}>
+                  {modalMessage.text}
+                </Text>
               </View>
             )}
 
-            <ScrollView style={styles.modalBody}>
-              <Text style={[styles.inputLabel, { color: theme.text }]}>First Name *</Text>
-              <TextInput style={[styles.input, { backgroundColor: theme.bg, color: theme.text, borderColor: theme.border }]} placeholder="First Name" placeholderTextColor={theme.textSecondary} value={formData.firstName} onChangeText={(text) => setFormData({ ...formData, firstName: text })} editable={!submitLoading} />
-
-              <Text style={[styles.inputLabel, { color: theme.text }]}>Last Name *</Text>
-              <TextInput style={[styles.input, { backgroundColor: theme.bg, color: theme.text, borderColor: theme.border }]} placeholder="Last Name" placeholderTextColor={theme.textSecondary} value={formData.lastName} onChangeText={(text) => setFormData({ ...formData, lastName: text })} editable={!submitLoading} />
-
-              <Text style={[styles.inputLabel, { color: theme.text }]}>Email *</Text>
-              <TextInput style={[styles.input, { backgroundColor: theme.bg, color: theme.text, borderColor: theme.border }]} placeholder="Email" placeholderTextColor={theme.textSecondary} value={formData.email} onChangeText={(text) => setFormData({ ...formData, email: text })} editable={!submitLoading} keyboardType="email-address" />
-
-              <Text style={[styles.inputLabel, { color: theme.text }]}>Contact Number</Text>
-              <TextInput style={[styles.input, { backgroundColor: theme.bg, color: theme.text, borderColor: theme.border }]} placeholder="Contact Number" placeholderTextColor={theme.textSecondary} value={formData.contactNumber} onChangeText={(text) => setFormData({ ...formData, contactNumber: text })} editable={!submitLoading} />
-
-              <Text style={[styles.inputLabel, { color: theme.text }]}>Role *</Text>
-              <View style={[styles.input, { backgroundColor: theme.bg, borderColor: theme.border, paddingHorizontal: 0 }]}>
-                {["customer", "event_organizer", "coordinator", "venue_administrator", "administrator"].map((role) => (
-                  <TouchableOpacity 
-                    key={role}
-                    style={role === "customer" ? styles.roleSelect : styles.roleSelectItem}
-                    onPress={() => setFormData({ ...formData, role })}
-                  >
-                    <Text style={{ color: formData.role === role ? Palette.primary : theme.text }}>
-                      {role.charAt(0).toUpperCase() + role.slice(1).replace(/_/g, " ")}
+            <ScrollView 
+              showsVerticalScrollIndicator={false} 
+              style={styles.modalScroll}
+              contentContainerStyle={styles.modalScrollContent}
+            >
+              <View style={styles.modalBody}>
+                <View style={styles.formGroup}>
+                  <View style={styles.labelRow}>
+                    <Text style={[styles.formLabel, { color: theme.text }]}>
+                      First Name
                     </Text>
-                  </TouchableOpacity>
-                ))}
-              </View>
-
-              {/* Role-Specific Fields */}
-              {ROLE_SPECIFIC_FIELDS[formData.role as UserRole]?.map((field) => {
-                // Make company name and address read-only for event organizers
-                const isReadOnly = formData.role === "event_organizer" && (field.key === "companyName" || field.key === "companyAddress");
-                
-                return (
-                  <View key={field.key}>
-                    <Text style={[styles.inputLabel, { color: theme.text }]}>{field.label}{isReadOnly ? " (Read-only)" : ""}</Text>
-                    <TextInput
-                      style={[styles.input, { backgroundColor: theme.bg, color: isReadOnly ? theme.textSecondary : theme.text, borderColor: theme.border, opacity: isReadOnly ? 0.6 : 1 }]}
-                      placeholder={field.label}
-                      placeholderTextColor={theme.textSecondary}
-                      value={formData[field.key] || ""}
-                      onChangeText={(text) => !isReadOnly && setFormData({ ...formData, [field.key]: text })}
-                      editable={!isReadOnly && !submitLoading}
-                      keyboardType={field.type === "tel" ? "phone-pad" : field.type === "email" ? "email-address" : "default"}
-                    />
+                    <Text style={{ color: Palette.red, fontSize: 14 }}>*</Text>
                   </View>
-                );
-              })}
+                  <TextInput
+                    style={[
+                      styles.formInput, 
+                      { 
+                        color: theme.text, 
+                        borderColor: validationError && !formData.firstName.trim() ? Palette.red : theme.border,
+                        backgroundColor: theme.lightBg
+                      }
+                    ]}
+                    placeholder="Enter First Name"
+                    placeholderTextColor={theme.textSecondary}
+                    value={formData.firstName}
+                    onChangeText={handleFirstNameChange}
+                    editable={!submitLoading}
+                    autoCapitalize="words"
+                  />
+                </View>
+
+                <View style={styles.formGroup}>
+                  <View style={styles.labelRow}>
+                    <Text style={[styles.formLabel, { color: theme.text }]}>
+                      Last Name
+                    </Text>
+                    <Text style={{ color: Palette.red, fontSize: 14 }}>*</Text>
+                  </View>
+                  <TextInput
+                    style={[
+                      styles.formInput, 
+                      { 
+                        color: theme.text, 
+                        borderColor: validationError && !formData.lastName.trim() ? Palette.red : theme.border,
+                        backgroundColor: theme.lightBg
+                      }
+                    ]}
+                    placeholder="Enter Last Name"
+                    placeholderTextColor={theme.textSecondary}
+                    value={formData.lastName}
+                    onChangeText={handleLastNameChange}
+                    editable={!submitLoading}
+                    autoCapitalize="words"
+                  />
+                </View>
+
+                <View style={styles.formGroup}>
+                  <View style={styles.labelRow}>
+                    <Text style={[styles.formLabel, { color: theme.text }]}>
+                      Email
+                    </Text>
+                    <Text style={{ color: Palette.red, fontSize: 14 }}>*</Text>
+                  </View>
+                  <TextInput
+                    style={[
+                      styles.formInput, 
+                      { 
+                        color: theme.text, 
+                        borderColor: duplicateError || (validationError && !formData.email.trim()) ? Palette.red : theme.border,
+                        backgroundColor: theme.lightBg
+                      }
+                    ]}
+                    placeholder="Enter Email"
+                    placeholderTextColor={theme.textSecondary}
+                    value={formData.email}
+                    onChangeText={handleEmailChange}
+                    onBlur={handleEmailBlur}
+                    editable={!submitLoading}
+                    keyboardType="email-address"
+                    autoCapitalize="none"
+                  />
+                  {isCheckingDuplicate && (
+                    <View style={styles.checkingContainer}>
+                      <ActivityIndicator size="small" color={Palette.blue} />
+                      <Text style={[styles.checkingText, { color: theme.textSecondary }]}>
+                        Checking availability...
+                      </Text>
+                    </View>
+                  )}
+                  {duplicateError && (
+                    <View style={styles.duplicateErrorContainer}>
+                      <Ionicons name="alert-circle" size={14} color={Palette.red} />
+                      <Text style={styles.duplicateErrorText}>{duplicateError}</Text>
+                    </View>
+                  )}
+                </View>
+
+                <View style={styles.formGroup}>
+                  <Text style={[styles.formLabel, { color: theme.text }]}>
+                    Contact Number
+                  </Text>
+                  <TextInput
+                    style={[
+                      styles.formInput, 
+                      { 
+                        color: theme.text, 
+                        borderColor: validationError && formData.contactNumber && !isValidPhoneNumber(formData.contactNumber) ? Palette.red : theme.border,
+                        backgroundColor: theme.lightBg
+                      }
+                    ]}
+                    placeholder="Enter Contact Number"
+                    placeholderTextColor={theme.textSecondary}
+                    value={formData.contactNumber}
+                    onChangeText={(text) => setFormData({ ...formData, contactNumber: text })}
+                    editable={!submitLoading}
+                    keyboardType="phone-pad"
+                  />
+                </View>
+
+                <View style={styles.formGroup}>
+                  <View style={styles.labelRow}>
+                    <Text style={[styles.formLabel, { color: theme.text }]}>
+                      Role
+                    </Text>
+                    <Text style={{ color: Palette.red, fontSize: 14 }}>*</Text>
+                  </View>
+                  <View style={[
+                    styles.formInput, 
+                    { 
+                      backgroundColor: theme.lightBg, 
+                      borderColor: theme.border,
+                      paddingHorizontal: 0,
+                      paddingVertical: 0
+                    }
+                  ]}>
+                    {["customer", "event_organizer", "coordinator", "venue_administrator", "administrator"].map((role) => (
+                      <TouchableOpacity 
+                        key={role}
+                        style={[
+                          styles.roleSelectItem,
+                          { 
+                            borderBottomWidth: 1, 
+                            borderBottomColor: theme.border,
+                            paddingHorizontal: 12,
+                            paddingVertical: 12
+                          }
+                        ]}
+                        onPress={() => setFormData({ ...formData, role })}
+                      >
+                        <Text style={{ 
+                          color: formData.role === role ? Palette.primary : theme.text,
+                          fontFamily: 'Poppins-Regular'
+                        }}>
+                          {role.charAt(0).toUpperCase() + role.slice(1).replace(/_/g, " ")}
+                        </Text>
+                      </TouchableOpacity>
+                    ))}
+                  </View>
+                </View>
+
+                {/* Role-Specific Fields */}
+                {ROLE_SPECIFIC_FIELDS[formData.role as UserRole]?.map((field) => {
+                  const isReadOnly = formData.role === "event_organizer" && (field.key === "companyName" || field.key === "companyAddress");
+                  
+                  return (
+                    <View key={field.key} style={styles.formGroup}>
+                      <Text style={[styles.formLabel, { color: theme.text }]}>
+                        {field.label}{isReadOnly ? " (Read-only)" : ""}
+                      </Text>
+                      <TextInput
+                        style={[
+                          styles.formInput, 
+                          { 
+                            backgroundColor: theme.lightBg, 
+                            color: isReadOnly ? theme.textSecondary : theme.text, 
+                            borderColor: theme.border,
+                            opacity: isReadOnly ? 0.6 : 1
+                          }
+                        ]}
+                        placeholder={field.label}
+                        placeholderTextColor={theme.textSecondary}
+                        value={formData[field.key] || ""}
+                        onChangeText={(text) => !isReadOnly && setFormData({ ...formData, [field.key]: text })}
+                        editable={!isReadOnly && !submitLoading}
+                        keyboardType={field.type === "tel" ? "phone-pad" : field.type === "email" ? "email-address" : "default"}
+                      />
+                    </View>
+                  );
+                })}
+
+                {validationError && (
+                  <View style={[
+                    styles.errorBox,
+                    { 
+                      borderColor: Palette.red, 
+                      backgroundColor: isDarkMode ? '#3f1f1f' : '#ffefef',
+                      marginTop: 8
+                    }
+                  ]}>
+                    <Ionicons name="alert-circle" size={14} color={Palette.red} />
+                    <Text style={[styles.errorText, { color: Palette.red }]}>
+                      {validationError}
+                    </Text>
+                  </View>
+                )}
+              </View>
             </ScrollView>
 
-            <View style={styles.modalFooter}>
-              <TouchableOpacity style={[styles.modalButton, { backgroundColor: theme.bg, borderColor: theme.border }]} onPress={closeModal} disabled={submitLoading}>
-                <Text style={[styles.modalButtonText, { color: theme.text }]}>Cancel</Text>
+            <View style={[
+              styles.modalFooter,
+              { borderTopColor: theme.border }
+            ]}>
+              <TouchableOpacity
+                style={[
+                  styles.cancelButton,
+                  { borderColor: theme.border }
+                ]}
+                onPress={closeModal}
+                disabled={submitLoading}
+              >
+                <Text style={[
+                  styles.cancelButtonText,
+                  { color: theme.text }
+                ]}>
+                  Cancel
+                </Text>
               </TouchableOpacity>
-              <TouchableOpacity style={[styles.modalButton, { backgroundColor: Palette.primary }]} onPress={handleCreateUser} disabled={submitLoading}>
-                {submitLoading ? (
+              <TouchableOpacity
+                style={[
+                  styles.saveButton,
+                  { 
+                    backgroundColor: isCreateFormValid() && !isCheckingDuplicate ? Palette.primary : theme.border,
+                    opacity: submitLoading || isCheckingDuplicate ? 0.7 : 1
+                  }
+                ]}
+                onPress={handleCreateUser}
+                disabled={!isCreateFormValid() || submitLoading || isCheckingDuplicate}
+              >
+                {submitLoading || isCheckingDuplicate ? (
                   <ActivityIndicator size="small" color={Palette.black} />
                 ) : (
-                  <Text style={[styles.modalButtonText, { color: Palette.black }]}>Create User</Text>
+                  <>
+                    <Ionicons name="checkmark" size={18} color={isCreateFormValid() ? Palette.black : theme.textSecondary} />
+                    <Text style={[
+                      styles.saveButtonText,
+                      { color: isCreateFormValid() ? Palette.black : theme.textSecondary }
+                    ]}>
+                      Create User
+                    </Text>
+                  </>
                 )}
               </TouchableOpacity>
             </View>
@@ -954,55 +1326,182 @@ export default function AccountManagement() {
       </Modal>
 
       {/* VIEW MODAL */}
-      <Modal visible={modalType === "view"} transparent animationType="fade">
+      <Modal 
+        visible={modalType === "view"} 
+        transparent 
+        animationType="fade"
+        onRequestClose={closeModal}
+      >
         <View style={styles.modalOverlay}>
-          <View style={[styles.modalContent, { backgroundColor: theme.card }]}>
+          <TouchableOpacity 
+            style={styles.modalBackdrop}
+            activeOpacity={1}
+            onPress={closeModal}
+          />
+          <View style={[
+            styles.smallModalContent, 
+            { 
+              backgroundColor: theme.card,
+              width: "85%",
+              maxHeight: "70%"
+            }
+          ]}>
             <View style={styles.modalHeader}>
-              <Text style={[styles.modalTitle, { color: theme.text }]}>User Details</Text>
+              <View>
+                <Text style={[styles.modalTitle, { color: theme.text }]}>
+                  User Details
+                </Text>
+              </View>
               <TouchableOpacity onPress={closeModal}>
                 <Ionicons name="close" size={24} color={theme.text} />
               </TouchableOpacity>
             </View>
 
             {selectedUser && (
-              <ScrollView style={styles.modalBody}>
-                <View style={styles.detailRow}>
-                  <Text style={[styles.detailLabel, { color: theme.textSecondary }]}>Name</Text>
-                  <Text style={[styles.detailValue, { color: theme.text }]}>{selectedUser.name}</Text>
-                </View>
-                <View style={styles.detailRow}>
-                  <Text style={[styles.detailLabel, { color: theme.textSecondary }]}>Email</Text>
-                  <Text style={[styles.detailValue, { color: theme.text }]}>{selectedUser.email}</Text>
-                </View>
-                <View style={styles.detailRow}>
-                  <Text style={[styles.detailLabel, { color: theme.textSecondary }]}>Role</Text>
-                  <Text style={[styles.detailValue, { color: getRoleBadgeColor(selectedUser.role) }]}>{selectedUser.role}</Text>
-                </View>
-                <View style={styles.detailRow}>
-                  <Text style={[styles.detailLabel, { color: theme.textSecondary }]}>Contact</Text>
-                  <Text style={[styles.detailValue, { color: theme.text }]}>{selectedUser.contact}</Text>
-                </View>
-                <View style={styles.detailRow}>
-                  <Text style={[styles.detailLabel, { color: theme.textSecondary }]}>Status</Text>
-                  <Text style={[styles.detailValue, { color: selectedUser.status ? "#28a745" : "#dc3545" }]}>{selectedUser.status ? "Active" : "Inactive"}</Text>
-                </View>
-                <View style={styles.detailRow}>
-                  <Text style={[styles.detailLabel, { color: theme.textSecondary }]}>Created At</Text>
-                  <Text style={[styles.detailValue, { color: theme.text }]}>{selectedUser.createdAt ? new Date(selectedUser.createdAt).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : 'N/A'}</Text>
-                </View>
-                <View style={styles.detailRow}>
-                  <Text style={[styles.detailLabel, { color: theme.textSecondary }]}>Updated At</Text>
-                  <Text style={[styles.detailValue, { color: theme.text }]}>{selectedUser.updatedAt ? new Date(selectedUser.updatedAt).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : 'N/A'}</Text>
+              <ScrollView 
+                showsVerticalScrollIndicator={false} 
+                style={styles.modalScroll}
+                contentContainerStyle={styles.modalScrollContent}
+              >
+                <View style={styles.modalBody}>
+                  <View style={styles.detailGroup}>
+                    <Text style={[styles.detailLabel, { color: theme.textSecondary }]}>
+                      Name
+                    </Text>
+                    <Text style={[styles.detailValue, { color: theme.text }]}>
+                      {selectedUser.name}
+                    </Text>
+                  </View>
+
+                  <View style={styles.detailGroup}>
+                    <Text style={[styles.detailLabel, { color: theme.textSecondary }]}>
+                      Email
+                    </Text>
+                    <Text style={[styles.detailValue, { color: theme.text }]}>
+                      {selectedUser.email}
+                    </Text>
+                  </View>
+
+                  <View style={styles.detailGroup}>
+                    <Text style={[styles.detailLabel, { color: theme.textSecondary }]}>
+                      Role
+                    </Text>
+                    <View style={[
+                      styles.roleBadge,
+                      { 
+                        backgroundColor: getRoleBadgeColor(selectedUser.role) + "20",
+                        alignSelf: 'flex-start'
+                      }
+                    ]}>
+                      <Text style={[
+                        styles.roleBadgeText,
+                        { color: getRoleBadgeColor(selectedUser.role) }
+                      ]}>
+                        {selectedUser.role}
+                      </Text>
+                    </View>
+                  </View>
+
+                  <View style={styles.detailGroup}>
+                    <Text style={[styles.detailLabel, { color: theme.textSecondary }]}>
+                      Contact
+                    </Text>
+                    <Text style={[styles.detailValue, { color: theme.text }]}>
+                      {selectedUser.contact}
+                    </Text>
+                  </View>
+
+                  <View style={styles.detailGroup}>
+                    <Text style={[styles.detailLabel, { color: theme.textSecondary }]}>
+                      Email Verified
+                    </Text>
+                    <View style={[
+                      styles.statusBadge,
+                      { 
+                        backgroundColor: selectedUser.emailVerified 
+                          ? Palette.green + "20" 
+                          : Palette.red + "20",
+                        alignSelf: 'flex-start'
+                      }
+                    ]}>
+                      <Text style={[
+                        styles.statusText,
+                        { color: selectedUser.emailVerified ? Palette.green : Palette.red }
+                      ]}>
+                        {selectedUser.emailVerified ? 'Verified' : 'Not Verified'}
+                      </Text>
+                    </View>
+                  </View>
+
+                  <View style={styles.detailGroup}>
+                    <Text style={[styles.detailLabel, { color: theme.textSecondary }]}>
+                      Status
+                    </Text>
+                    <View style={[
+                      styles.statusBadge,
+                      { 
+                        backgroundColor: selectedUser.status 
+                          ? Palette.green + "20" 
+                          : Palette.red + "20",
+                        alignSelf: 'flex-start'
+                      }
+                    ]}>
+                      <Text style={[
+                        styles.statusText,
+                        { color: selectedUser.status ? Palette.green : Palette.red }
+                      ]}>
+                        {selectedUser.status ? 'Active' : 'Inactive'}
+                      </Text>
+                    </View>
+                  </View>
+
+                  <View style={styles.detailGroup}>
+                    <Text style={[styles.detailLabel, { color: theme.textSecondary }]}>
+                      Created At
+                    </Text>
+                    <Text style={[styles.detailValue, { color: theme.text }]}>
+                      {selectedUser.createdAt ? new Date(selectedUser.createdAt).toLocaleDateString('en-US', { 
+                        year: 'numeric', 
+                        month: 'long', 
+                        day: 'numeric',
+                        hour: '2-digit',
+                        minute: '2-digit'
+                      }) : 'N/A'}
+                    </Text>
+                  </View>
+
+                  <View style={styles.detailGroup}>
+                    <Text style={[styles.detailLabel, { color: theme.textSecondary }]}>
+                      Last Updated
+                    </Text>
+                    <Text style={[styles.detailValue, { color: theme.text }]}>
+                      {selectedUser.updatedAt ? new Date(selectedUser.updatedAt).toLocaleDateString('en-US', { 
+                        year: 'numeric', 
+                        month: 'long', 
+                        day: 'numeric',
+                        hour: '2-digit',
+                        minute: '2-digit'
+                      }) : 'Never'}
+                    </Text>
+                  </View>
                 </View>
               </ScrollView>
             )}
 
-            <View style={styles.modalFooter}>
-              <TouchableOpacity style={[styles.modalButton, { backgroundColor: theme.bg, borderColor: theme.border, flex: 1 }]} onPress={closeModal}>
-                <Text style={[styles.modalButtonText, { color: theme.text }]}>Close</Text>
-              </TouchableOpacity>
-              <TouchableOpacity style={[styles.modalButton, { backgroundColor: Palette.blue, flex: 1, marginLeft: 8 }]} onPress={() => { setModalType(null); setTimeout(() => openEditModal(selectedUser), 100); }}>
-                <Text style={[styles.modalButtonText, { color: "white" }]}>Edit</Text>
+            <View style={[
+              styles.modalFooter,
+              { borderTopColor: theme.border }
+            ]}>
+              <TouchableOpacity
+                style={[
+                  styles.closeButton,
+                  { backgroundColor: Palette.primary }
+                ]}
+                onPress={closeModal}
+              >
+                <Text style={styles.closeButtonText}>
+                  Close
+                </Text>
               </TouchableOpacity>
             </View>
           </View>
@@ -1010,74 +1509,259 @@ export default function AccountManagement() {
       </Modal>
 
       {/* EDIT MODAL */}
-      <Modal visible={modalType === "edit"} transparent animationType="fade">
+      <Modal 
+        visible={modalType === "edit"} 
+        transparent 
+        animationType="fade"
+        onRequestClose={closeModal}
+      >
         <View style={styles.modalOverlay}>
-          <View style={[styles.modalContent, { backgroundColor: theme.card }]}>
+          <TouchableOpacity 
+            style={styles.modalBackdrop}
+            activeOpacity={1}
+            onPress={closeModal}
+          />
+          <View style={[
+            styles.modalContent, 
+            { 
+              backgroundColor: theme.card,
+              width: "95%",
+              maxHeight: "85%"
+            }
+          ]}>
             <View style={styles.modalHeader}>
-              <Text style={[styles.modalTitle, { color: theme.text }]}>Edit Account</Text>
+              <View>
+                <Text style={[styles.modalTitle, { color: theme.text }]}>Edit Account</Text>
+                <Text style={[styles.modalSubtitle, { color: theme.textSecondary }]}>
+                  Update user details
+                </Text>
+              </View>
               <TouchableOpacity onPress={closeModal}>
                 <Ionicons name="close" size={24} color={theme.text} />
               </TouchableOpacity>
             </View>
 
             {modalMessage && (
-              <View style={[styles.modalMessage, modalMessage.type === "error" ? styles.errorMessage : styles.successMessage]}>
-                <Ionicons name={modalMessage.type === "error" ? "close-circle" : "checkmark-circle"} size={18} color={modalMessage.type === "error" ? "#dc3545" : "#28a745"} />
-                <Text style={[styles.messageText, { color: modalMessage.type === "error" ? "#721c24" : "#155724" }]}>{modalMessage.text}</Text>
+              <View style={[
+                styles.modalMessage, 
+                modalMessage.type === "error" ? styles.errorMessage : styles.successMessage
+              ]}>
+                <Ionicons name={modalMessage.type === "error" ? "close-circle" : "checkmark-circle"} size={18} color={modalMessage.type === "error" ? Palette.red : Palette.green} />
+                <Text style={[
+                  styles.messageText, 
+                  { color: modalMessage.type === "error" ? Palette.red : Palette.green }
+                ]}>
+                  {modalMessage.text}
+                </Text>
               </View>
             )}
 
-            <ScrollView style={styles.modalBody}>
-              <Text style={[styles.inputLabel, { color: theme.text }]}>First Name *</Text>
-              <TextInput style={[styles.input, { backgroundColor: theme.bg, color: theme.text, borderColor: theme.border }]} placeholder="First Name" placeholderTextColor={theme.textSecondary} value={formData.firstName} onChangeText={(text) => setFormData({ ...formData, firstName: text })} editable={!submitLoading} />
-
-              <Text style={[styles.inputLabel, { color: theme.text }]}>Last Name *</Text>
-              <TextInput style={[styles.input, { backgroundColor: theme.bg, color: theme.text, borderColor: theme.border }]} placeholder="Last Name" placeholderTextColor={theme.textSecondary} value={formData.lastName} onChangeText={(text) => setFormData({ ...formData, lastName: text })} editable={!submitLoading} />
-
-              <Text style={[styles.inputLabel, { color: theme.text }]}>Email (Read-only)</Text>
-              <TextInput style={[styles.input, { backgroundColor: theme.bg, color: theme.textSecondary, borderColor: theme.border, opacity: 0.6 }]} placeholder="Email" placeholderTextColor={theme.textSecondary} value={formData.email} editable={false} keyboardType="email-address" />
-
-              <Text style={[styles.inputLabel, { color: theme.text }]}>Contact Number</Text>
-              <TextInput style={[styles.input, { backgroundColor: theme.bg, color: theme.text, borderColor: theme.border }]} placeholder="Contact Number" placeholderTextColor={theme.textSecondary} value={formData.contactNumber} onChangeText={(text) => setFormData({ ...formData, contactNumber: text })} editable={!submitLoading} />
-
-              <Text style={[styles.inputLabel, { color: theme.text }]}>Role (Read-only)</Text>
-              <View style={[styles.input, { backgroundColor: theme.bg, borderColor: theme.border, opacity: 0.6, justifyContent: "center", paddingVertical: 12 }]}>
-                <Text style={{ color: theme.textSecondary }}>
-                  {formData.role.charAt(0).toUpperCase() + formData.role.slice(1).replace(/_/g, " ")}
-                </Text>
-              </View>
-
-              {/* Role-Specific Fields */}
-              {ROLE_SPECIFIC_FIELDS[formData.role as UserRole]?.map((field) => {
-                // Make company name and address read-only for event organizers
-                const isReadOnly = formData.role === "event_organizer" && (field.key === "companyName" || field.key === "companyAddress");
-                
-                return (
-                  <View key={field.key}>
-                    <Text style={[styles.inputLabel, { color: theme.text }]}>{field.label}{isReadOnly ? " (Read-only)" : ""}</Text>
-                    <TextInput
-                      style={[styles.input, { backgroundColor: theme.bg, color: isReadOnly ? theme.textSecondary : theme.text, borderColor: theme.border, opacity: isReadOnly ? 0.6 : 1 }]}
-                      placeholder={field.label}
-                      placeholderTextColor={theme.textSecondary}
-                      value={formData[field.key] || ""}
-                      onChangeText={(text) => !isReadOnly && setFormData({ ...formData, [field.key]: text })}
-                      editable={!isReadOnly && !submitLoading}
-                      keyboardType={field.type === "tel" ? "phone-pad" : field.type === "email" ? "email-address" : "default"}
-                    />
+            <ScrollView 
+              showsVerticalScrollIndicator={false} 
+              style={styles.modalScroll}
+              contentContainerStyle={styles.modalScrollContent}
+            >
+              <View style={styles.modalBody}>
+                <View style={styles.formGroup}>
+                  <View style={styles.labelRow}>
+                    <Text style={[styles.formLabel, { color: theme.text }]}>
+                      First Name
+                    </Text>
+                    <Text style={{ color: Palette.red, fontSize: 14 }}>*</Text>
                   </View>
-                );
-              })}
+                  <TextInput
+                    style={[
+                      styles.formInput, 
+                      { 
+                        color: theme.text, 
+                        borderColor: validationError && !formData.firstName.trim() ? Palette.red : theme.border,
+                        backgroundColor: theme.lightBg
+                      }
+                    ]}
+                    placeholder="Enter First Name"
+                    placeholderTextColor={theme.textSecondary}
+                    value={formData.firstName}
+                    onChangeText={handleFirstNameChange}
+                    editable={!submitLoading}
+                    autoCapitalize="words"
+                  />
+                </View>
+
+                <View style={styles.formGroup}>
+                  <View style={styles.labelRow}>
+                    <Text style={[styles.formLabel, { color: theme.text }]}>
+                      Last Name
+                    </Text>
+                    <Text style={{ color: Palette.red, fontSize: 14 }}>*</Text>
+                  </View>
+                  <TextInput
+                    style={[
+                      styles.formInput, 
+                      { 
+                        color: theme.text, 
+                        borderColor: validationError && !formData.lastName.trim() ? Palette.red : theme.border,
+                        backgroundColor: theme.lightBg
+                      }
+                    ]}
+                    placeholder="Enter Last Name"
+                    placeholderTextColor={theme.textSecondary}
+                    value={formData.lastName}
+                    onChangeText={handleLastNameChange}
+                    editable={!submitLoading}
+                    autoCapitalize="words"
+                  />
+                </View>
+
+                <View style={styles.formGroup}>
+                  <Text style={[styles.formLabel, { color: theme.text }]}>
+                    Email (Read-only)
+                  </Text>
+                  <View style={[
+                    styles.readOnlyField,
+                    { 
+                      backgroundColor: theme.lightBg,
+                      borderColor: theme.border
+                    }
+                  ]}>
+                    <Text style={{ color: theme.textSecondary, fontSize: 14, fontFamily: 'Poppins-Regular' }}>
+                      {formData.email}
+                    </Text>
+                  </View>
+                </View>
+
+                <View style={styles.formGroup}>
+                  <Text style={[styles.formLabel, { color: theme.text }]}>
+                    Contact Number
+                  </Text>
+                  <TextInput
+                    style={[
+                      styles.formInput, 
+                      { 
+                        color: theme.text, 
+                        borderColor: validationError && formData.contactNumber && !isValidPhoneNumber(formData.contactNumber) ? Palette.red : theme.border,
+                        backgroundColor: theme.lightBg
+                      }
+                    ]}
+                    placeholder="Enter Contact Number"
+                    placeholderTextColor={theme.textSecondary}
+                    value={formData.contactNumber}
+                    onChangeText={(text) => setFormData({ ...formData, contactNumber: text })}
+                    editable={!submitLoading}
+                    keyboardType="phone-pad"
+                  />
+                </View>
+
+                <View style={styles.formGroup}>
+                  <Text style={[styles.formLabel, { color: theme.text }]}>
+                    Role (Read-only)
+                  </Text>
+                  <View style={[
+                    styles.readOnlyField,
+                    { 
+                      backgroundColor: theme.lightBg,
+                      borderColor: theme.border
+                    }
+                  ]}>
+                    <Text style={{ color: theme.textSecondary, fontSize: 14, fontFamily: 'Poppins-Regular' }}>
+                      {formData.role.charAt(0).toUpperCase() + formData.role.slice(1).replace(/_/g, " ")}
+                    </Text>
+                  </View>
+                </View>
+
+                {/* Role-Specific Fields */}
+                {ROLE_SPECIFIC_FIELDS[formData.role as UserRole]?.map((field) => {
+                  const isReadOnly = formData.role === "event_organizer" && (field.key === "companyName" || field.key === "companyAddress");
+                  
+                  return (
+                    <View key={field.key} style={styles.formGroup}>
+                      <Text style={[styles.formLabel, { color: theme.text }]}>
+                        {field.label}{isReadOnly ? " (Read-only)" : ""}
+                      </Text>
+                      <TextInput
+                        style={[
+                          styles.formInput, 
+                          { 
+                            backgroundColor: theme.lightBg, 
+                            color: isReadOnly ? theme.textSecondary : theme.text, 
+                            borderColor: theme.border,
+                            opacity: isReadOnly ? 0.6 : 1
+                          }
+                        ]}
+                        placeholder={field.label}
+                        placeholderTextColor={theme.textSecondary}
+                        value={formData[field.key] || ""}
+                        onChangeText={(text) => !isReadOnly && setFormData({ ...formData, [field.key]: text })}
+                        editable={!isReadOnly && !submitLoading}
+                        keyboardType={field.type === "tel" ? "phone-pad" : field.type === "email" ? "email-address" : "default"}
+                      />
+                    </View>
+                  );
+                })}
+
+                {validationError && (
+                  <View style={[
+                    styles.errorBox,
+                    { 
+                      borderColor: Palette.red, 
+                      backgroundColor: isDarkMode ? '#3f1f1f' : '#ffefef',
+                      marginTop: 8
+                    }
+                  ]}>
+                    <Ionicons name="alert-circle" size={14} color={Palette.red} />
+                    <Text style={[styles.errorText, { color: Palette.red }]}>
+                      {validationError}
+                    </Text>
+                  </View>
+                )}
+              </View>
             </ScrollView>
 
-            <View style={styles.modalFooter}>
-              <TouchableOpacity style={[styles.modalButton, { backgroundColor: theme.bg, borderColor: theme.border }]} onPress={closeModal} disabled={submitLoading}>
-                <Text style={[styles.modalButtonText, { color: theme.text }]}>Cancel</Text>
+            <View style={[
+              styles.modalFooter,
+              { borderTopColor: theme.border }
+            ]}>
+              <TouchableOpacity
+                style={[
+                  styles.cancelButton,
+                  { borderColor: theme.border }
+                ]}
+                onPress={closeModal}
+                disabled={submitLoading}
+              >
+                <Text style={[
+                  styles.cancelButtonText,
+                  { color: theme.text }
+                ]}>
+                  Cancel
+                </Text>
               </TouchableOpacity>
-              <TouchableOpacity style={[styles.modalButton, { backgroundColor: Palette.primary }]} onPress={handleEditUser} disabled={submitLoading}>
+              <TouchableOpacity
+                style={[
+                  styles.saveButton,
+                  { 
+                    backgroundColor: hasEditChanges() && !validationError ? Palette.primary : theme.border,
+                    opacity: submitLoading ? 0.7 : 1
+                  }
+                ]}
+                onPress={handleEditUser}
+                disabled={!hasEditChanges() || submitLoading || !!validationError}
+              >
                 {submitLoading ? (
                   <ActivityIndicator size="small" color={Palette.black} />
                 ) : (
-                  <Text style={[styles.modalButtonText, { color: Palette.black }]}>Save Changes</Text>
+                  <>
+                    <Ionicons 
+                      name="checkmark" 
+                      size={18} 
+                      color={hasEditChanges() && !validationError ? Palette.black : theme.textSecondary} 
+                    />
+                    <Text style={[
+                      styles.saveButtonText,
+                      { color: hasEditChanges() && !validationError ? Palette.black : theme.textSecondary }
+                    ]}>
+                      Save Changes
+                    </Text>
+                  </>
                 )}
               </TouchableOpacity>
             </View>
@@ -1086,9 +1770,26 @@ export default function AccountManagement() {
       </Modal>
 
       {/* DELETE MODAL */}
-      <Modal visible={modalType === "delete"} transparent animationType="fade">
+      <Modal 
+        visible={modalType === "delete"} 
+        transparent 
+        animationType="fade"
+        onRequestClose={closeModal}
+      >
         <View style={styles.modalOverlay}>
-          <View style={[styles.modalContent, { backgroundColor: theme.card, maxHeight: 250 }]}>
+          <TouchableOpacity 
+            style={styles.modalBackdrop}
+            activeOpacity={1}
+            onPress={closeModal}
+          />
+          <View style={[
+            styles.smallModalContent, 
+            { 
+              backgroundColor: theme.card,
+              width: "85%",
+              maxHeight: 250
+            }
+          ]}>
             <View style={styles.modalHeader}>
               <Text style={[styles.modalTitle, { color: theme.text }]}>Delete User</Text>
               <TouchableOpacity onPress={closeModal}>
@@ -1097,9 +1798,17 @@ export default function AccountManagement() {
             </View>
 
             {modalMessage && (
-              <View style={[styles.modalMessage, modalMessage.type === "error" ? styles.errorMessage : styles.successMessage]}>
-                <Ionicons name={modalMessage.type === "error" ? "close-circle" : "checkmark-circle"} size={18} color={modalMessage.type === "error" ? "#dc3545" : "#28a745"} />
-                <Text style={[styles.messageText, { color: modalMessage.type === "error" ? "#721c24" : "#155724" }]}>{modalMessage.text}</Text>
+              <View style={[
+                styles.modalMessage, 
+                modalMessage.type === "error" ? styles.errorMessage : styles.successMessage
+              ]}>
+                <Ionicons name={modalMessage.type === "error" ? "close-circle" : "checkmark-circle"} size={18} color={modalMessage.type === "error" ? Palette.red : Palette.green} />
+                <Text style={[
+                  styles.messageText, 
+                  { color: modalMessage.type === "error" ? Palette.red : Palette.green }
+                ]}>
+                  {modalMessage.text}
+                </Text>
               </View>
             )}
 
@@ -1111,15 +1820,48 @@ export default function AccountManagement() {
               </View>
             )}
 
-            <View style={styles.modalFooter}>
-              <TouchableOpacity style={[styles.modalButton, { backgroundColor: theme.bg, borderColor: theme.border }]} onPress={closeModal} disabled={submitLoading}>
-                <Text style={[styles.modalButtonText, { color: theme.text }]}>Cancel</Text>
+            <View style={[
+              styles.modalFooter,
+              { borderTopColor: theme.border }
+            ]}>
+              <TouchableOpacity
+                style={[
+                  styles.cancelButton,
+                  { borderColor: theme.border }
+                ]}
+                onPress={closeModal}
+                disabled={submitLoading}
+              >
+                <Text style={[
+                  styles.cancelButtonText,
+                  { color: theme.text }
+                ]}>
+                  Cancel
+                </Text>
               </TouchableOpacity>
-              <TouchableOpacity style={[styles.modalButton, { backgroundColor: "#dc3545" }]} onPress={handleDeleteUser} disabled={submitLoading}>
+              <TouchableOpacity
+                style={[
+                  styles.saveButton,
+                  { 
+                    backgroundColor: Palette.red,
+                    opacity: submitLoading ? 0.7 : 1
+                  }
+                ]}
+                onPress={handleDeleteUser}
+                disabled={submitLoading}
+              >
                 {submitLoading ? (
                   <ActivityIndicator size="small" color="white" />
                 ) : (
-                  <Text style={[styles.modalButtonText, { color: "white" }]}>Delete</Text>
+                  <>
+                    <Ionicons name="trash" size={18} color="white" />
+                    <Text style={[
+                      styles.saveButtonText,
+                      { color: "white" }
+                    ]}>
+                      Delete
+                    </Text>
+                  </>
                 )}
               </TouchableOpacity>
             </View>
@@ -1143,127 +1885,138 @@ export default function AccountManagement() {
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
+  container: { 
+    flex: 1 
   },
-  mainContainer: {
-    flex: 1,
-    flexDirection: "row",
+  mainContainer: { 
+    flex: 1, 
+    flexDirection: "row" 
   },
-  content: {
-    flex: 1,
-    padding: 16,
-    overflow: "visible",
-    zIndex: 1,
+  content: { 
+    flex: 1, 
+    padding: 16 
   },
-  titleSection: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    marginBottom: 24,
+  titleSection: { 
+    flexDirection: "row", 
+    justifyContent: "space-between", 
+    alignItems: "flex-start", 
+    marginBottom: 24 
   },
-  pageTitle: {
-    fontSize: 28,
-    fontWeight: "bold",
+  pageTitle: { 
+    fontSize: 28, 
+    fontWeight: "bold", 
     marginBottom: 4,
+    fontFamily: 'Poppins-Bold'
   },
-  subtitle: {
+  subtitle: { 
     fontSize: 14,
+    fontFamily: 'Poppins-Regular'
   },
-  createButton: {
-    flexDirection: "row",
-    alignItems: "center",
-    paddingHorizontal: 16,
-    paddingVertical: 10,
-    borderRadius: 8,
-    gap: 8,
+  createButton: { 
+    flexDirection: "row", 
+    alignItems: "center", 
+    paddingHorizontal: 16, 
+    paddingVertical: 10, 
+    borderRadius: 8, 
+    gap: 8 
   },
-  createButtonText: {
-    color: Palette.black,
-    fontSize: 14,
+  createButtonText: { 
+    color: Palette.black, 
+    fontSize: 14, 
     fontWeight: "600",
+    fontFamily: 'Poppins-SemiBold'
   },
-  filterSection: {
-    marginBottom: 24,
-    gap: 12,
-    flexDirection: "row",
-    alignItems: "flex-start",
-    zIndex: 100,
-    overflow: "visible",
-  },
-  searchBox: {
+  filterSection: { 
     flexDirection: "row",
     alignItems: "center",
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    borderRadius: 8,
-    borderWidth: 1,
-    gap: 8,
-  },
-  searchInput: {
-    flex: 1,
-    fontSize: 14,
-  },
-  filterButtons: {
-    flexDirection: "row",
     gap: 12,
+    marginBottom: 24,
+    position: 'relative',
+  },
+  filterDropdownContainer: {
+    position: 'relative',
+    zIndex: 999,
+  },
+  searchBox: { 
+    flexDirection: "row", 
+    alignItems: "center", 
+    paddingHorizontal: 12, 
+    paddingVertical: 10, 
+    borderRadius: 8, 
+    borderWidth: 1, 
+    gap: 8,
+    flex: 1
+  },
+  searchInput: { 
+    flex: 1, 
+    fontSize: 14,
+    fontFamily: 'Poppins-Regular'
   },
   filterButton: {
-    flex: 1,
-    flexDirection: "row",
-    alignItems: "center",
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
     paddingHorizontal: 12,
     paddingVertical: 10,
     borderRadius: 8,
     borderWidth: 1,
-    gap: 8,
-    position: "relative",
+    minWidth: 140,
+    zIndex: 1000,
   },
   filterButtonText: {
     fontSize: 14,
-    flex: 1,
+    fontFamily: 'Poppins-Regular'
   },
   dropdownMenu: {
-    position: "absolute",
-    top: 45,
+    position: 'absolute',
+    top: 50,
     left: 0,
     right: 0,
     borderWidth: 1,
     borderRadius: 8,
-    zIndex: 99999,
-    elevation: 100,
-    overflow: "visible",
+    maxHeight: 150,
+    elevation: 1000,
+    zIndex: 1001,
   },
   dropdownItem: {
     paddingHorizontal: 12,
-    paddingVertical: 12,
+    paddingVertical: 10,
     borderBottomWidth: 1,
-    borderBottomColor: "transparent",
+    borderBottomColor: 'rgba(0,0,0,0.1)',
   },
   dropdownItemText: {
     fontSize: 14,
+    fontFamily: 'Poppins-Regular'
   },
-  tableContainer: {
-    borderRadius: 8,
-    overflow: "hidden",
-    marginBottom: 24,
+  tableContainer: { 
+    borderRadius: 8, 
+    overflow: "hidden", 
+    borderWidth: 1, 
+    marginBottom: 24 
   },
-  tableHeader: {
-    flexDirection: "row",
-    paddingVertical: 12,
-    paddingHorizontal: 12,
-    borderBottomWidth: 1,
+  tableHeader: { 
+    flexDirection: "row", 
+    paddingVertical: 12, 
+    paddingHorizontal: 12, 
+    borderBottomWidth: 1, 
+    alignItems: "center" 
   },
-  columnHeader: {
-    fontWeight: "600",
+  columnHeaderWrapper: {
+    justifyContent: "center",
+    alignItems: "flex-start",
+  },
+  columnHeader: { 
+    fontWeight: "600", 
     fontSize: 12,
+    fontFamily: 'Poppins-SemiBold'
   },
-  tableRow: {
-    flexDirection: "row",
-    paddingVertical: 12,
-    paddingHorizontal: 12,
-    borderBottomWidth: 1,
-    alignItems: "center",
+  tableRow: { 
+    flexDirection: "row", 
+    paddingVertical: 12, 
+    paddingHorizontal: 12, 
+    borderBottomWidth: 1, 
+    alignItems: "center", 
+    gap: 8 
   },
   nameColumn: {
     flexDirection: "row",
@@ -1274,7 +2027,6 @@ const styles = StyleSheet.create({
     width: 36,
     height: 36,
     borderRadius: 18,
-    backgroundColor: "#007bff",
     justifyContent: "center",
     alignItems: "center",
   },
@@ -1282,9 +2034,15 @@ const styles = StyleSheet.create({
     color: "white",
     fontWeight: "bold",
     fontSize: 12,
+    fontFamily: 'Poppins-SemiBold'
   },
-  cellText: {
+  cellWrapper: {
+    justifyContent: "center",
+    alignItems: "flex-start",
+  },
+  cellText: { 
     fontSize: 14,
+    fontFamily: 'Poppins-Regular'
   },
   roleColumn: {
     alignItems: "flex-start",
@@ -1297,132 +2055,231 @@ const styles = StyleSheet.create({
   roleBadgeText: {
     fontSize: 12,
     fontWeight: "600",
-  },
-  statusColumn: {
-    flex: 1,
-    justifyContent: "center",
-    alignItems: "center",
-    paddingHorizontal: 8,
+    fontFamily: 'Poppins-SemiBold'
   },
   verificationColumn: {
-    flex: 1,
     justifyContent: "center",
     alignItems: "center",
-    paddingHorizontal: 8,
   },
-  actionsColumn: {
+  statusColumn: {
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  actionsColumn: { 
+    flexDirection: "row", 
+    alignItems: "center",
+  },
+  actionButtons: {
     flexDirection: "row",
-    justifyContent: "space-around",
     alignItems: "center",
+    gap: 16,
+    justifyContent: "center",
+    width: "100%",
   },
-  actionIcon: {
+  actionIcon: { 
     padding: 6,
+    alignItems: 'center',
+    justifyContent: 'center'
   },
-  loadingContainer: {
-    padding: 48,
-    borderRadius: 8,
-    justifyContent: "center",
-    alignItems: "center",
+  loadingContainer: { 
+    flex: 1, 
+    justifyContent: "center", 
+    alignItems: "center" 
   },
-  loadingText: {
-    marginTop: 12,
+  loadingText: { 
+    marginTop: 12, 
     fontSize: 14,
+    fontFamily: 'Poppins-Regular'
   },
-  errorContainer: {
-    padding: 24,
+  emptyContainer: { 
+    padding: 48, 
+    justifyContent: "center", 
+    alignItems: "center" 
+  },
+  emptyText: { 
+    fontSize: 14, 
+    marginTop: 12,
+    fontFamily: 'Poppins-Regular'
+  },
+  errorBox: {
+    paddingHorizontal: 12,
+    paddingVertical: 10,
     borderRadius: 8,
-    justifyContent: "center",
-    alignItems: "center",
+    borderWidth: 1,
+    marginBottom: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
   },
   errorText: {
-    fontSize: 14,
-    fontWeight: "600",
+    color: Palette.red,
+    fontSize: 12,
+    flex: 1,
+    fontFamily: 'Poppins-Regular'
   },
-  emptyContainer: {
-    padding: 48,
-    borderRadius: 8,
-    justifyContent: "center",
-    alignItems: "center",
+  duplicateErrorContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 4,
+    gap: 4,
   },
-  emptyText: {
-    fontSize: 14,
+  duplicateErrorText: {
+    color: Palette.red,
+    fontSize: 12,
+    fontFamily: 'Poppins-Regular'
+  },
+  checkingContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 4,
+    gap: 8,
+  },
+  checkingText: {
+    fontSize: 12,
+    fontFamily: 'Poppins-Regular'
   },
   // Modal Styles
-  modalOverlay: {
-    flex: 1,
-    backgroundColor: "rgba(0, 0, 0, 0.5)",
-    justifyContent: "center",
+  modalOverlay: { 
+    flex: 1, 
+    backgroundColor: "rgba(0, 0, 0, 0.5)", 
+    justifyContent: "center", 
     alignItems: "center",
-    padding: 16,
+    position: 'relative',
   },
-  modalContent: {
+  modalBackdrop: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+  },
+  modalContent: { 
+    borderRadius: 12, 
+    shadowColor: "#000", 
+    shadowOffset: { width: 0, height: 2 }, 
+    shadowOpacity: 0.25, 
+    shadowRadius: 3.84, 
+    elevation: 5,
+    position: 'relative',
+    zIndex: 1001,
+  },
+  smallModalContent: {
     borderRadius: 12,
-    width: "100%",
-    maxWidth: 500,
-    maxHeight: "80%",
-    overflow: "hidden",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 3.84,
+    elevation: 5,
+    position: 'relative',
+    zIndex: 1001,
   },
-  modalHeader: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    paddingHorizontal: 20,
-    paddingVertical: 16,
-    borderBottomWidth: 1,
-    borderBottomColor: "#f0f0f0",
+  modalScroll: { flex: 1 },
+  modalScrollContent: { paddingBottom: 16 },
+  modalHeader: { 
+    flexDirection: "row", 
+    justifyContent: "space-between", 
+    alignItems: "flex-start", 
+    paddingHorizontal: 20, 
+    paddingTop: 20, 
+    paddingBottom: 16, 
+    borderBottomWidth: 1, 
+    borderBottomColor: "rgba(0, 0, 0, 0.1)" 
   },
-  modalTitle: {
-    fontSize: 18,
-    fontWeight: "bold",
+  modalTitle: { 
+    fontSize: 20, 
+    fontWeight: "600", 
+    marginBottom: 4,
+    fontFamily: 'Poppins-SemiBold'
   },
-  modalBody: {
-    paddingHorizontal: 20,
-    paddingVertical: 16,
-  },
-  inputLabel: {
+  modalSubtitle: { 
     fontSize: 14,
-    fontWeight: "600",
-    marginBottom: 6,
+    fontFamily: 'Poppins-Regular'
   },
-  input: {
+  modalBody: { 
+    paddingHorizontal: 20, 
+    paddingVertical: 16 
+  },
+  modalFooter: { 
+    flexDirection: "row", 
+    gap: 12, 
+    paddingHorizontal: 20, 
+    paddingVertical: 16, 
+    borderTopWidth: 1, 
+    justifyContent: "flex-end" 
+  },
+  formGroup: { 
+    marginBottom: 20 
+  },
+  labelRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 8,
+    gap: 4
+  },
+  formLabel: { 
+    fontSize: 14, 
+    fontWeight: "500",
+    fontFamily: 'Poppins-Medium'
+  },
+  formInput: { 
+    borderWidth: 1, 
+    borderRadius: 8, 
+    paddingHorizontal: 12, 
+    paddingVertical: 10, 
+    fontSize: 14,
+    fontFamily: 'Poppins-Regular'
+  },
+  readOnlyField: {
     borderWidth: 1,
     borderRadius: 8,
     paddingHorizontal: 12,
     paddingVertical: 10,
-    marginBottom: 16,
-    fontSize: 14,
-  },
-  roleSelect: {
-    paddingHorizontal: 12,
-    paddingVertical: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: "#f0f0f0",
   },
   roleSelectItem: {
-    paddingHorizontal: 12,
-    paddingVertical: 12,
     borderBottomWidth: 1,
-    borderBottomColor: "#f0f0f0",
   },
-  modalFooter: {
-    flexDirection: "row",
+  cancelButton: { 
+    paddingHorizontal: 20, 
+    paddingVertical: 10, 
+    borderRadius: 8, 
+    borderWidth: 1, 
+    minWidth: 100, 
+    alignItems: "center" 
+  },
+  cancelButtonText: { 
+    fontSize: 14, 
+    fontWeight: "500",
+    fontFamily: 'Poppins-Medium'
+  },
+  saveButton: { 
+    flexDirection: "row", 
+    alignItems: "center", 
+    gap: 8, 
+    paddingHorizontal: 20, 
+    paddingVertical: 10, 
+    borderRadius: 8, 
+    minWidth: 120, 
+    justifyContent: "center" 
+  },
+  saveButtonText: { 
+    fontSize: 14, 
+    fontWeight: "600",
+    fontFamily: 'Poppins-SemiBold'
+  },
+  closeButton: {
     paddingHorizontal: 20,
-    paddingVertical: 16,
-    gap: 8,
-    borderTopWidth: 1,
-    borderTopColor: "#f0f0f0",
-  },
-  modalButton: {
-    flex: 1,
-    paddingVertical: 12,
+    paddingVertical: 10,
     borderRadius: 8,
-    justifyContent: "center",
+    minWidth: 100,
     alignItems: "center",
-    borderWidth: 1,
+    alignSelf: "center",
+    width: "100%",
   },
-  modalButtonText: {
+  closeButtonText: {
+    color: Palette.black,
     fontSize: 14,
     fontWeight: "600",
+    fontFamily: 'Poppins-SemiBold'
   },
   modalMessage: {
     flexDirection: "row",
@@ -1435,37 +2292,46 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   successMessage: {
-    backgroundColor: "#d4edda",
+    backgroundColor: Palette.green + "20",
     borderWidth: 1,
-    borderColor: "#28a745",
+    borderColor: Palette.green,
   },
   errorMessage: {
-    backgroundColor: "#f8d7da",
+    backgroundColor: Palette.red + "20",
     borderWidth: 1,
-    borderColor: "#dc3545",
+    borderColor: Palette.red,
   },
   messageText: {
     fontSize: 13,
     fontWeight: "500",
     flex: 1,
+    fontFamily: 'Poppins-Medium'
   },
-  detailRow: {
+  detailGroup: {
     marginBottom: 16,
-    paddingBottom: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: "#f0f0f0",
   },
   detailLabel: {
     fontSize: 12,
-    fontWeight: "600",
     marginBottom: 4,
+    fontFamily: 'Poppins-Regular'
   },
   detailValue: {
     fontSize: 14,
+    fontFamily: 'Poppins-Regular'
+  },
+  statusBadge: { 
+    paddingHorizontal: 12, 
+    paddingVertical: 6, 
+    borderRadius: 16,
+  },
+  statusText: { 
+    fontSize: 12, 
     fontWeight: "500",
+    fontFamily: 'Poppins-Medium'
   },
   deleteWarning: {
     fontSize: 14,
     lineHeight: 20,
+    fontFamily: 'Poppins-Regular'
   },
 });

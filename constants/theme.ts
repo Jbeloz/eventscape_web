@@ -7,8 +7,8 @@ export const Theme = {
     text: Palette.black,
     muted: Palette.gray700,
     border: Palette.border,
-    black: Palette.black,    // for general use
-    primary: "#1E90FF",      // Added primary color (example blue)
+    black: Palette.black,   
+    primary: "#FFB81C",      
   },
 
   fonts: {
