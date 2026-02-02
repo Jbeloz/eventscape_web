@@ -3,24 +3,32 @@ import { usePathname, useRouter } from "expo-router";
 import { useEffect, useState } from "react";
 import { ScrollView, StyleSheet, Text, TouchableOpacity, View } from "react-native";
 import { Palette } from "../../assets/colors/palette";
+import { Fonts } from "../../assets/fonts/fonts";
 
-const SIDEBAR_WIDTH = 280;
+const SIDEBAR_WIDTH_EXPANDED = 280;
+const SIDEBAR_WIDTH_COLLAPSED = 70;
 
 interface AdminSidebarProps {
   isDarkMode: boolean;
   isOpen: boolean;
+  onToggleCollapse?: () => void;
+  isCollapsed?: boolean;
 }
 
 interface NavItem {
   label: string;
   icon: string;
-  active?: boolean;
   route?: string | null;
   hasDropdown?: boolean;
   submenu?: { label: string; route: string }[];
 }
 
-export default function AdminSidebar({ isDarkMode, isOpen }: AdminSidebarProps) {
+export default function AdminSidebar({ 
+  isDarkMode, 
+  isOpen, 
+  onToggleCollapse, 
+  isCollapsed = false 
+}: AdminSidebarProps) {
   const router = useRouter();
   const pathname = usePathname();
   const theme = isDarkMode ? Palette.dark : Palette.light;
@@ -49,7 +57,6 @@ export default function AdminSidebar({ isDarkMode, isOpen }: AdminSidebarProps) 
         { label: "Category Management", route: "/administrator_pages/theme_management/category_management" },
         { label: "Decorations", route: "/administrator_pages/theme_management/decorations" },
         { label: "Lighting", route: "/administrator_pages/theme_management/lighting" },
-        
       ]
     },
     { 
@@ -96,12 +103,13 @@ export default function AdminSidebar({ isDarkMode, isOpen }: AdminSidebarProps) 
     { label: "My Projects", icon: "briefcase", route: null },
     { label: "Reviews & Feedback", icon: "star", route: null },
     { label: "Reports & Analytics", icon: "chart-line", route: null },
-    { label: "Profile", icon: "account", route: null },
     { label: "System Maintenance", icon: "wrench", route: null },
   ];
 
   // Auto-expand parent menu when on a submenu route
   const getInitialExpandedItem = () => {
+    if (isCollapsed) return null;
+    
     for (const item of navItems) {
       if (item.submenu) {
         // For Venue Management
@@ -167,8 +175,10 @@ export default function AdminSidebar({ isDarkMode, isOpen }: AdminSidebarProps) 
 
   // Update expanded state when pathname changes
   useEffect(() => {
-    setExpandedItem(getInitialExpandedItem());
-  }, [pathname]);
+    if (!isCollapsed) {
+      setExpandedItem(getInitialExpandedItem());
+    }
+  }, [pathname, isCollapsed]);
 
   const isActive = (route: string | null | undefined) => {
     if (!route) return false;
@@ -242,25 +252,106 @@ export default function AdminSidebar({ isDarkMode, isOpen }: AdminSidebarProps) 
   if (!isOpen) return null;
 
   return (
-    <View style={[styles.sidebar, { backgroundColor: theme.sidebar, borderRightColor: Palette.primary }]}>
+    <View style={[
+      styles.sidebar, 
+      { 
+        backgroundColor: theme.sidebar, 
+        borderRightColor: Palette.primary,
+        width: isCollapsed ? SIDEBAR_WIDTH_COLLAPSED : SIDEBAR_WIDTH_EXPANDED
+      }
+    ]}>
+      {/* Sidebar Header with Logo and Toggle Button side by side */}
       <View style={styles.sidebarHeader}>
-        <Text style={[styles.logo, { color: isDarkMode ? Palette.primary : Palette.black }]}>
-          EventScape
-        </Text>
+        <View style={[
+          styles.headerContent, 
+          isCollapsed ? styles.headerContentCollapsed : styles.headerContentExpanded
+        ]}>
+          {/* Logo - Shows full "EventScape" when expanded, just "ES" when collapsed */}
+          {!isCollapsed ? (
+            <Text style={[
+              styles.logo, 
+              { 
+                color: isDarkMode ? Palette.primary : Palette.black,
+                fontFamily: Fonts.bold
+              }
+            ]}>
+              EventScape
+            </Text>
+          ) : (
+            <Text style={[
+              styles.logoCollapsed, 
+              { 
+                color: isDarkMode ? Palette.primary : Palette.black,
+                fontFamily: Fonts.bold
+              }
+            ]}>
+              ES
+            </Text>
+          )}
+          
+          {/* Toggle Button */}
+          {onToggleCollapse && (
+            <TouchableOpacity 
+              style={[
+                styles.toggleButton,
+                isCollapsed ? styles.toggleButtonCollapsed : styles.toggleButtonExpanded
+              ]}
+              onPress={onToggleCollapse}
+            >
+              <MaterialCommunityIcons
+                name={isCollapsed ? "menu-right" : "menu-left"}
+                size={24}
+                color={isDarkMode ? Palette.primary : Palette.black}
+              />
+            </TouchableOpacity>
+          )}
+        </View>
       </View>
 
-      <ScrollView style={styles.navList}>
+      <ScrollView style={styles.navList} showsVerticalScrollIndicator={false}>
         {navItems.map((item, index) => {
           const isItemActive = isActive(item.route);
           const isItemSubmenuActive = isSubmenuActive(item);
           const isExpanded = expandedItem === item.label;
+          
+          if (isCollapsed) {
+            return (
+              <TouchableOpacity
+                key={index}
+                style={[
+                  styles.navItemCollapsed,
+                  (isItemActive || isItemSubmenuActive) && [
+                    styles.navItemActiveCollapsed, 
+                    { backgroundColor: Palette.primary }
+                  ],
+                ]}
+                onPress={() => {
+                  if (item.route) {
+                    router.push(item.route as any);
+                  }
+                }}
+              >
+                <MaterialCommunityIcons
+                  name={item.icon as any}
+                  size={20}
+                  color={(isItemActive || isItemSubmenuActive) ? Palette.black : theme.textSecondary}
+                />
+                {(isItemActive || isItemSubmenuActive) && (
+                  <View style={[styles.activeIndicator, { backgroundColor: Palette.primary }]} />
+                )}
+              </TouchableOpacity>
+            );
+          }
           
           return (
             <View key={index}>
               <TouchableOpacity
                 style={[
                   styles.navItem,
-                  (isItemActive || isItemSubmenuActive) && [styles.navItemActive, { backgroundColor: Palette.primary }],
+                  (isItemActive || isItemSubmenuActive) && [
+                    styles.navItemActive, 
+                    { backgroundColor: Palette.primary }
+                  ],
                 ]}
                 onPress={() => {
                   if (item.hasDropdown) {
@@ -284,9 +375,13 @@ export default function AdminSidebar({ isDarkMode, isOpen }: AdminSidebarProps) 
                 <Text
                   style={[
                     styles.navLabel,
-                    { color: (isItemActive || isItemSubmenuActive) ? Palette.black : theme.textSecondary },
-                    (isItemActive || isItemSubmenuActive) && styles.navLabelActive,
+                    { 
+                      color: (isItemActive || isItemSubmenuActive) ? Palette.black : theme.textSecondary,
+                      fontFamily: Fonts.regular
+                    },
+                    (isItemActive || isItemSubmenuActive) && { fontFamily: Fonts.semibold },
                   ]}
+                  numberOfLines={1}
                 >
                   {item.label}
                 </Text>
@@ -302,7 +397,14 @@ export default function AdminSidebar({ isDarkMode, isOpen }: AdminSidebarProps) 
 
               {/* Submenu Items */}
               {item.hasDropdown && item.submenu && isExpanded && (
-                <View style={[styles.submenu, { backgroundColor: isDarkMode ? Palette.dark.bg : "#f5f5f5" }]}>
+                <View style={[
+                  styles.submenu, 
+                  { 
+                    backgroundColor: isDarkMode ? 
+                      `${Palette.primary}15` : // 15 = ~8% opacity in hex
+                      `${Palette.primary}10`   // 10 = ~6% opacity
+                  }
+                ]}>
                   {item.submenu.map((subitem, subindex) => {
                     let isSubitemActive = isActive(subitem.route);
                     
@@ -321,17 +423,33 @@ export default function AdminSidebar({ isDarkMode, isOpen }: AdminSidebarProps) 
                         key={subindex}
                         style={[
                           styles.submenuItem,
-                          isSubitemActive && [styles.submenuItemActive, { backgroundColor: Palette.primary + "30" }],
+                          isSubitemActive && [
+                            styles.submenuItemActive, 
+                            { backgroundColor: Palette.primary + "30" }
+                          ],
                         ]}
                         onPress={() => router.push(subitem.route as any)}
                       >
-                        <View style={[styles.submenuDot, { backgroundColor: isSubitemActive ? Palette.primary : theme.textSecondary }]} />
+                        <View style={[
+                          styles.submenuDot, 
+                          { 
+                            backgroundColor: isSubitemActive ? 
+                              Palette.primary : 
+                              theme.textSecondary + "80" // 80 = 50% opacity
+                          }
+                        ]} />
                         <Text
                           style={[
                             styles.submenuLabel,
-                            { color: isSubitemActive ? Palette.primary : theme.textSecondary },
-                            isSubitemActive && styles.submenuLabelActive,
+                            { 
+                              color: isSubitemActive ? 
+                                Palette.primary : 
+                                theme.textSecondary,
+                              fontFamily: Fonts.regular
+                            },
+                            isSubitemActive && { fontFamily: Fonts.medium },
                           ]}
+                          numberOfLines={1}
                         >
                           {subitem.label}
                         </Text>
@@ -345,19 +463,34 @@ export default function AdminSidebar({ isDarkMode, isOpen }: AdminSidebarProps) 
         })}
       </ScrollView>
 
+      {/* Logout Button */}
       <TouchableOpacity
-        style={[styles.logoutButton, { backgroundColor: isDarkMode ? Palette.primary : Palette.black }]}
+        style={[
+          styles.logoutButton, 
+          { 
+            backgroundColor: isDarkMode ? Palette.primary : Palette.black,
+            flexDirection: isCollapsed ? "column" : "row"
+          }
+        ]}
         onPress={() => router.push("/auth")}
       >
         <MaterialCommunityIcons
           name="logout"
           size={20}
           color={isDarkMode ? Palette.black : Palette.white}
-          style={styles.navIcon}
+          style={isCollapsed ? null : styles.navIcon}
         />
-        <Text style={[styles.logoutText, { color: isDarkMode ? Palette.black : Palette.white }]}>
-          Logout
-        </Text>
+        {!isCollapsed && (
+          <Text style={[
+            styles.logoutText, 
+            { 
+              color: isDarkMode ? Palette.black : Palette.white,
+              fontFamily: Fonts.medium
+            }
+          ]}>
+            Logout
+          </Text>
+        )}
       </TouchableOpacity>
     </View>
   );
@@ -365,17 +498,41 @@ export default function AdminSidebar({ isDarkMode, isOpen }: AdminSidebarProps) 
 
 const styles = StyleSheet.create({
   sidebar: {
-    width: SIDEBAR_WIDTH,
     borderRightWidth: 1,
-    paddingVertical: 20,
+    paddingVertical: 16,
   },
   sidebarHeader: {
-    paddingHorizontal: 20,
-    marginBottom: 30,
+    paddingHorizontal: 16,
+    marginBottom: 24,
+  },
+  headerContent: {
+    flexDirection: "row",
+    alignItems: "center",
+  },
+  headerContentExpanded: {
+    justifyContent: "space-between",
+  },
+  headerContentCollapsed: {
+    justifyContent: "center",
+    flexDirection: "column",
+    gap: 12,
   },
   logo: {
-    fontSize: 24,
-    fontWeight: "bold",
+    fontSize: 20,
+  },
+  logoCollapsed: {
+    fontSize: 16,
+    marginTop: 4,
+  },
+  toggleButton: {
+    padding: 4,
+    borderRadius: 4,
+  },
+  toggleButtonExpanded: {
+    marginLeft: 8,
+  },
+  toggleButtonCollapsed: {
+    marginTop: 8,
   },
   navList: {
     flex: 1,
@@ -383,13 +540,31 @@ const styles = StyleSheet.create({
   navItem: {
     flexDirection: "row",
     alignItems: "center",
-    paddingHorizontal: 20,
+    paddingHorizontal: 16,
     paddingVertical: 12,
-    marginHorizontal: 10,
+    marginHorizontal: 8,
     marginVertical: 4,
     borderRadius: 8,
   },
+  navItemCollapsed: {
+    alignItems: "center",
+    justifyContent: "center",
+    paddingVertical: 12,
+    marginHorizontal: 8,
+    marginVertical: 4,
+    borderRadius: 8,
+    position: "relative",
+  },
   navItemActive: {},
+  navItemActiveCollapsed: {},
+  activeIndicator: {
+    position: "absolute",
+    left: 0,
+    width: 4,
+    height: 24,
+    borderTopRightRadius: 2,
+    borderBottomRightRadius: 2,
+  },
   navIcon: {
     marginRight: 12,
   },
@@ -397,14 +572,12 @@ const styles = StyleSheet.create({
     flex: 1,
     fontSize: 14,
   },
-  navLabelActive: {
-    fontWeight: "600",
-  },
   dropdownArrow: {
     marginLeft: 8,
   },
   submenu: {
-    marginHorizontal: 20,
+    marginLeft: 32,
+    marginRight: 16,
     borderRadius: 8,
     overflow: "hidden",
     marginVertical: 4,
@@ -419,29 +592,26 @@ const styles = StyleSheet.create({
   },
   submenuItemActive: {},
   submenuDot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
+    width: 6,
+    height: 6,
+    borderRadius: 3,
     marginRight: 12,
   },
   submenuLabel: {
     fontSize: 13,
     flex: 1,
   },
-  submenuLabelActive: {
-    fontWeight: "600",
-  },
+  submenuLabelActive: {},
   logoutButton: {
-    flexDirection: "row",
     alignItems: "center",
-    marginHorizontal: 10,
-    paddingHorizontal: 20,
+    justifyContent: "center",
+    marginHorizontal: 8,
+    paddingHorizontal: 16,
     paddingVertical: 12,
     borderRadius: 8,
+    marginTop: 8,
   },
   logoutText: {
     fontSize: 14,
-    fontWeight: "600",
-    marginLeft: 12,
   },
 });
