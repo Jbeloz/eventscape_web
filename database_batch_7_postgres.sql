@@ -10,6 +10,7 @@ CREATE TYPE door_type_enum AS ENUM ('Single', 'Double');
 CREATE TYPE door_corner_enum AS ENUM ('Left', 'Right', 'Center');
 CREATE TYPE door_swing_enum AS ENUM ('Inward', 'Outward');
 CREATE TYPE door_hinge_enum AS ENUM ('Left', 'Right');
+CREATE TYPE door_wall_enum AS ENUM ('Top', 'Bottom', 'Left', 'Right');
 CREATE TYPE rate_type_enum AS ENUM ('Hourly', 'Daily');
 CREATE TYPE seasonal_rate_type_enum AS ENUM ('Hourly', 'Daily', 'Package', 'All');
 CREATE TYPE modifier_type_enum AS ENUM ('Fixed', 'Percentage');
@@ -646,6 +647,7 @@ CREATE TABLE venue_doors (
     width DECIMAL(5,2) NOT NULL,
     height DECIMAL(5,2) NOT NULL,
     door_offset DECIMAL(5,2) NOT NULL,
+    wall door_wall_enum NOT NULL DEFAULT 'Left',
     corner_position door_corner_enum NOT NULL DEFAULT 'Center',
     swing_direction door_swing_enum NOT NULL DEFAULT 'Inward',
     hinge_position door_hinge_enum NOT NULL DEFAULT 'Left',

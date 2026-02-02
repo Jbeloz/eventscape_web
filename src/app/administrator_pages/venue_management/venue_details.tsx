@@ -2,19 +2,20 @@ import { Ionicons } from "@expo/vector-icons";
 import { useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
 import { useCallback, useEffect, useState } from "react";
 import {
-    ActivityIndicator,
-    Alert,
-    Image,
-    ScrollView,
-    StyleSheet,
-    Switch,
-    Text,
-    TouchableOpacity,
-    View,
+  ActivityIndicator,
+  Alert,
+  Image,
+  ScrollView,
+  StyleSheet,
+  Switch,
+  Text,
+  TouchableOpacity,
+  View,
 } from "react-native";
 import { Palette } from "../../../../assets/colors/palette";
 import AdminHeader from "../../../components/admin-header";
 import AdminSidebar from "../../../components/admin-sidebar";
+import VenueFloorPlanVisualizer from "../../../components/venue-floor-plan-visualizer";
 import { useTheme } from "../../../context/theme-context";
 import { supabase } from "../../../services/supabase";
 import { fetchCompleteVenueDetails, fetchVenueAdministrators } from "../../../services/venueService";
@@ -26,11 +27,20 @@ export default function VenueDetails() {
   const { venueId } = useLocalSearchParams();
   const [venueStatus, setVenueStatus] = useState(true);
   const [selectedImage, setSelectedImage] = useState(0);
+
   const [venueAdministrators, setVenueAdministrators] = useState<any[]>([]);
   const [selectedVenueAdmin, setSelectedVenueAdmin] = useState<any>(null);
   const [adminLoading, setAdminLoading] = useState(true);
   const [venueData, setVenueData] = useState<any>(null);
   const [loading, setLoading] = useState(true);
+  const [expandedRules, setExpandedRules] = useState<{ [key: number]: boolean }>({});
+
+  useEffect(() => {
+    if (venueData?.images && venueData.images.length > 0) {
+      const thumbnailIndex = venueData.images.findIndex((img: any) => img.is_thumbnail);
+      setSelectedImage(thumbnailIndex >= 0 ? thumbnailIndex : 0);
+    }
+  }, [venueData]);
 
   useEffect(() => {
     loadVenueData();
@@ -116,8 +126,27 @@ export default function VenueDetails() {
 
   // Helper functions to extract data from the fetched records
   const getDimension = (name: string) => {
+    // Get dimensions from floor plans first
+    if (name === "Length" && venueData?.floorPlans?.[0]?.length) {
+      return venueData.floorPlans[0].length;
+    }
+    if (name === "Width" && venueData?.floorPlans?.[0]?.width) {
+      return venueData.floorPlans[0].width;
+    }
+    if (name === "Floor Area" && venueData?.floorPlans?.[0]?.area_sqm) {
+      return venueData.floorPlans[0].area_sqm;
+    }
+    if (name === "Ceiling Height" && venueData?.floorPlans?.[0]?.height) {
+      return venueData.floorPlans[0].height;
+    }
+    // Fallback to specifications for custom specifications
     const spec = venueData?.specifications?.find((s: any) => s.specification_name === name);
-    return spec?.specification_value || "N/A";
+    if (spec) {
+      console.log(`📋 Found specification: ${name} = ${spec.specification_value}`);
+      return spec.specification_value;
+    }
+    console.log(`❌ Specification not found: ${name}`);
+    return "N/A";
   };
 
   const getContacts = () => {
@@ -218,8 +247,26 @@ export default function VenueDetails() {
             <View style={styles.gallerySection}>
               <Text style={[styles.sectionTitle, { color: theme.text }]}>Gallery</Text>
               
-              {/* Main Image */}
-              <Image source={{ uri: venueData.images[selectedImage]?.image_path }} style={[styles.mainImage, { borderRadius: 12 }]} />
+              {/* Main Image - Show Thumbnail First */}
+              {venueData.images[selectedImage]?.image_path ? (
+                <Image 
+                  source={{ uri: venueData.images[selectedImage].image_path }} 
+                  style={[styles.mainImage, { borderRadius: 12 }]}
+                  onError={() => {
+                    console.error('Failed to load main image:', venueData.images[selectedImage]?.image_path);
+                  }}
+                />
+              ) : (
+                <View style={[styles.mainImage, { borderRadius: 12, backgroundColor: '#f0f0f0', justifyContent: 'center', alignItems: 'center' }]}>
+                  <Ionicons name="image-outline" size={64} color={theme.textSecondary} />
+                  <Text style={{ color: theme.textSecondary, marginTop: 8, fontSize: 12 }}>Image unavailable</Text>
+                </View>
+              )}
+              {selectedImage !== (venueData.images.findIndex((img: any) => img.is_thumbnail) >= 0 ? venueData.images.findIndex((img: any) => img.is_thumbnail) : 0) && (
+                <View style={{ paddingVertical: 8, paddingHorizontal: 12, backgroundColor: "rgba(255, 152, 0, 0.1)", borderRadius: 8, marginTop: 12 }}>
+                  <Text style={{ fontSize: 12, color: "#FF9800", fontWeight: "500" }}>💡 This is not the main thumbnail. Swipe to view the main thumbnail image.</Text>
+                </View>
+              )}
 
               {/* Thumbnail Row */}
               <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.thumbnailRow}>
@@ -232,7 +279,19 @@ export default function VenueDetails() {
                     ]}
                     onPress={() => setSelectedImage(index)}
                   >
-                    <Image source={{ uri: image.image_path }} style={styles.thumbnailImage} />
+                    {image.image_path ? (
+                      <Image 
+                        source={{ uri: image.image_path }} 
+                        style={styles.thumbnailImage}
+                        onError={() => {
+                          console.error('Failed to load thumbnail image at index', index, ':', image.image_path);
+                        }}
+                      />
+                    ) : (
+                      <View style={[styles.thumbnailImage, { backgroundColor: '#f0f0f0', justifyContent: 'center', alignItems: 'center' }]}>
+                        <Ionicons name="image-outline" size={24} color={theme.textSecondary} />
+                      </View>
+                    )}
                   </TouchableOpacity>
                 ))}
               </ScrollView>
@@ -317,6 +376,39 @@ export default function VenueDetails() {
             )}
           </View>
 
+          {/* Rules & Regulations */}
+          {venueData.rules && venueData.rules.length > 0 && (
+            <View style={[styles.rulesSection, { backgroundColor: theme.card, borderColor: theme.border }]}>
+              <Text style={[styles.sectionTitle, { color: theme.text }]}>Rules & Regulations</Text>
+              {venueData.rules.map((rule: any, index: number) => {
+                const isExpanded = expandedRules[index];
+                const maxChars = 100;
+                const isTruncated = rule.rule_text.length > maxChars;
+                const displayText = isExpanded ? rule.rule_text : rule.rule_text.substring(0, maxChars);
+
+                return (
+                  <View key={index} style={{ marginBottom: 16 }}>
+                    <Text style={[styles.ruleText, { color: theme.text }]}>
+                      {displayText}
+                      {isTruncated && !isExpanded ? '...' : ''}
+                    </Text>
+                    {isTruncated && (
+                      <TouchableOpacity
+                        onPress={() =>
+                          setExpandedRules((prev) => ({ ...prev, [index]: !prev[index] }))
+                        }
+                      >
+                        <Text style={[styles.readMoreText, { color: Palette.primary }]}>
+                          {isExpanded ? 'Show Less' : 'Read More'}
+                        </Text>
+                      </TouchableOpacity>
+                    )}
+                  </View>
+                );
+              })}
+            </View>
+          )}
+
           {/* Technical Specifications */}
           <View style={[styles.techSection, { backgroundColor: theme.card, borderColor: theme.border }]}>
             <Text style={[styles.sectionTitle, { color: theme.text }]}>Technical Specifications</Text>
@@ -342,12 +434,44 @@ export default function VenueDetails() {
               </View>
             </View>
 
-            {/* Venue Specifications */}
-            <Text style={[styles.subsectionTitle, { color: theme.text, marginTop: 16 }]}>Venue Specifications</Text>
-            <Text style={[styles.specificationText, { color: theme.text }]}>
-              {getDimension("Specifications")}
-            </Text>
+            {/* Floor Plan Visualizer */}
+            {venueData?.floorPlans && venueData.floorPlans.length > 0 && (
+              <View style={{ marginTop: 24 }}>
+                <Text style={[styles.subsectionTitle, { color: theme.text }]}>Floor Plan</Text>
+                {venueData.floorPlans.map((plan: any, index: number) => (
+                  <View key={index} style={styles.floorPlanCard}>
+                    <VenueFloorPlanVisualizer
+                      length={plan.length?.toString() || getDimension("Length")}
+                      width={plan.width?.toString() || getDimension("Width")}
+                      doors={venueData.doors || []}
+                      theme={theme}
+                    />
+                    <Text style={[styles.floorPlanInfo, { color: theme.text, marginTop: 8 }]}>
+                      {plan.length}m × {plan.width}m ({plan.area_sqm} sqm)
+                    </Text>
+                  </View>
+                ))}
+              </View>
+            )}
 
+            {/* Venue Specifications */}
+            {venueData?.specifications && venueData.specifications.length > 0 ? (
+              <>
+                <Text style={[styles.subsectionTitle, { color: theme.text, marginTop: 16 }]}>Venue Specifications</Text>
+                {venueData.specifications.map((spec: any, index: number) => (
+                  <Text key={index} style={[styles.specificationText, { color: theme.text, marginBottom: 8 }]}>
+                    <Text style={{ fontWeight: '600' }}>{spec.specification_name}:</Text> {spec.specification_value}
+                    {spec.notes && <Text style={{ fontSize: 12, color: theme.textSecondary }}> ({spec.notes})</Text>}
+                  </Text>
+                ))}
+              </>
+            ) : (
+              <>
+                <Text style={[styles.subsectionTitle, { color: theme.text, marginTop: 16 }]}>Venue Specifications</Text>
+                <Text style={[styles.specificationText, { color: theme.textSecondary }]}>No specifications added</Text>
+              </>
+            )
+          }
             {/* Door Placement */}
             {venueData.doors && venueData.doors.length > 0 && (
               <>
@@ -425,11 +549,58 @@ export default function VenueDetails() {
               <Text style={[styles.priceValue, { color: theme.text }]}>₱{pricing.holidayPrice?.toFixed(2) || "0.00"}</Text>
             </View>
 
+            {/* Overtime Rates */}
             {venueData.overtimeRates && venueData.overtimeRates.length > 0 && (
-              <View style={styles.priceRow}>
-                <Text style={[styles.priceLabel, { color: theme.textSecondary }]}>Overtime Rate</Text>
-                <Text style={[styles.priceValue, { color: theme.text }]}>₱{venueData.overtimeRates[0]?.price_per_hour?.toFixed(2) || "0.00"}/hr</Text>
-              </View>
+              <>
+                <Text style={[styles.priceBreakdownTitle, { color: theme.text, marginTop: 20 }]}>Overtime Rates</Text>
+                {venueData.overtimeRates.map((rate: any, index: number) => (
+                  <View key={index} style={[styles.seasonalCard, { backgroundColor: theme.lightBg, borderColor: theme.border }]}>
+                    <Text style={[styles.seasonalTitle, { color: theme.text }]}>Rate {index + 1}</Text>
+                    <View style={styles.seasonalDetails}>
+                      <Text style={[styles.seasonalDetail, { color: theme.text }]}>
+                        <Text style={{ fontWeight: '600' }}>Type:</Text> {rate.rate_type}
+                      </Text>
+                      <Text style={[styles.seasonalDetail, { color: theme.text }]}>
+                        <Text style={{ fontWeight: '600' }}>Price Per Hour:</Text> ₱{rate.price_per_hour?.toFixed(2) || "0.00"}
+                      </Text>
+                      {rate.start_hour !== null && (
+                        <Text style={[styles.seasonalDetail, { color: theme.text }]}>
+                          <Text style={{ fontWeight: '600' }}>Start Hour:</Text> {rate.start_hour}
+                        </Text>
+                      )}
+                      {rate.end_hour !== null && (
+                        <Text style={[styles.seasonalDetail, { color: theme.text }]}>
+                          <Text style={{ fontWeight: '600' }}>End Hour:</Text> {rate.end_hour}
+                        </Text>
+                      )}
+                    </View>
+                  </View>
+                ))}
+              </>
+            )}
+
+            {/* Seasonal Pricing */}
+            {venueData.seasonalPricing && venueData.seasonalPricing.length > 0 && (
+              <>
+                <Text style={[styles.priceBreakdownTitle, { color: theme.text, marginTop: 20 }]}>Seasonal Pricing</Text>
+                {venueData.seasonalPricing.map((season: any, index: number) => (
+                  <View key={index} style={[styles.seasonalCard, { backgroundColor: theme.lightBg, borderColor: theme.border }]}>
+                    <Text style={[styles.seasonalTitle, { color: theme.text }]}>{season.season_name}</Text>
+                    <View style={styles.seasonalDetails}>
+                      <Text style={[styles.seasonalDetail, { color: theme.text }]}>
+                        <Text style={{ fontWeight: '600' }}>Period:</Text> {season.start_date} to {season.end_date}
+                      </Text>
+                      <Text style={[styles.seasonalDetail, { color: theme.text }]}>
+                        <Text style={{ fontWeight: '600' }}>Rate Type:</Text> {season.rate_type}
+                      </Text>
+                      <Text style={[styles.seasonalDetail, { color: theme.text }]}>
+                        <Text style={{ fontWeight: '600' }}>Modifier:</Text> {season.modifier_type} {season.modifier_value}
+                        {season.modifier_type === 'Percentage' ? '%' : '₱'}
+                      </Text>
+                    </View>
+                  </View>
+                ))}
+              </>
             )}
 
             {/* Pricing Packages */}
@@ -463,38 +634,6 @@ export default function VenueDetails() {
               </>
             )}
           </View>
-
-          {/* Rules & Regulations */}
-          {venueData.rules && venueData.rules.length > 0 && (
-            <View style={[styles.rulesSection, { backgroundColor: theme.card, borderColor: theme.border }]}>
-              <Text style={[styles.sectionTitle, { color: theme.text }]}>Rules & Regulations</Text>
-              {venueData.rules.map((rule: any, index: number) => (
-                <Text key={index} style={[styles.ruleText, { color: theme.text }]}>
-                  {rule.rule_text}
-                </Text>
-              ))}
-            </View>
-          )}
-
-          {/* Floor Plans */}
-          {venueData?.floorPlans && venueData.floorPlans.length > 0 ? (
-            <View style={[styles.floorPlanSection, { backgroundColor: theme.card, borderColor: theme.border }]}>
-              <Text style={[styles.sectionTitle, { color: theme.text }]}>Floor Plans</Text>
-              {venueData.floorPlans.map((plan: any, index: number) => (
-                <View key={index} style={styles.floorPlanCard}>
-                  <Image source={{ uri: plan.floor_plan_file }} style={styles.floorPlanImage} />
-                  <Text style={[styles.floorPlanInfo, { color: theme.text }]}>
-                    {plan.length}m × {plan.width}m ({plan.area_sqm} sqm)
-                  </Text>
-                </View>
-              ))}
-            </View>
-          ) : (
-            <View style={[styles.floorPlanSection, { backgroundColor: theme.card, borderColor: theme.border }]}>
-              <Text style={[styles.sectionTitle, { color: theme.text }]}>Floor Plans</Text>
-              <Text style={[styles.specificationText, { color: theme.textSecondary }]}>No floor plans uploaded</Text>
-            </View>
-          )}
         </ScrollView>
       </View>
     </View>
@@ -811,6 +950,24 @@ const styles = StyleSheet.create({
     fontSize: 12,
     lineHeight: 18,
   },
+  seasonalCard: {
+    borderWidth: 1,
+    borderRadius: 8,
+    padding: 12,
+    marginBottom: 12,
+  },
+  seasonalTitle: {
+    fontSize: 13,
+    fontWeight: "600",
+    marginBottom: 8,
+  },
+  seasonalDetails: {
+    gap: 4,
+  },
+  seasonalDetail: {
+    fontSize: 12,
+    lineHeight: 18,
+  },
   packageCard: {
     borderWidth: 1,
     borderRadius: 8,
@@ -866,6 +1023,11 @@ const styles = StyleSheet.create({
     fontSize: 13,
     lineHeight: 20,
     marginBottom: 8,
+  },
+  readMoreText: {
+    fontSize: 12,
+    fontWeight: '600',
+    marginTop: 6,
   },
   floorPlanSection: {
     borderWidth: 1,

@@ -1,6 +1,7 @@
 import { Ionicons } from "@expo/vector-icons";
+import * as ImagePicker from "expo-image-picker";
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -16,6 +17,7 @@ import {
 import { Palette } from '../../../../assets/colors/palette';
 import AdminHeader from '../../../components/admin-header';
 import AdminSidebar from '../../../components/admin-sidebar';
+import VenueFloorPlanVisualizer from '../../../components/venue-floor-plan-visualizer';
 import { useTheme } from '../../../context/theme-context';
 import { supabase } from '../../../services/supabase';
 import {
@@ -29,9 +31,8 @@ import {
   updateVenueBaseRate,
   updateVenueContact,
   updateVenueDoor,
-  updateVenueOvertimeRate,
-  updateVenueRule,
-  updateVenueSpecification
+  updateVenueFloorPlan,
+  updateVenueRule
 } from '../../../services/venueService';
 
 interface Door {
@@ -40,6 +41,7 @@ interface Door {
   width: string;
   height: string;
   offsetFromCorner: string;
+  wall: string;
   swingDirection: string;
   hingePosition: string;
 }
@@ -81,8 +83,18 @@ export default function EditVenueNew() {
   const [showVenueAdminDropdown, setShowVenueAdminDropdown] = useState(false);
   const [venueAdminError, setVenueAdminError] = useState(false);
 
-  // Venue Specifications as text field
-  const [venueSpecifications, setVenueSpecifications] = useState('Stage Available, Air Conditioning, Parking, Handicapped Access');
+  // Venue Specifications as array of objects
+  interface VenueSpecification {
+    id: number;
+    name: string;
+    value: string;
+    notes: string;
+  }
+  const [venueSpecifications, setVenueSpecifications] = useState<VenueSpecification[]>([]);
+  const [customSpecificationInput, setCustomSpecificationInput] = useState("");
+  const [specValueInput, setSpecValueInput] = useState("");
+  const [specNotesInput, setSpecNotesInput] = useState("");
+  const [nextSpecId, setNextSpecId] = useState(1);
 
   // Step 2: Technical Specs
   const [length, setLength] = useState('60');
@@ -96,9 +108,11 @@ export default function EditVenueNew() {
   const [selectedEventTypes, setSelectedEventTypes] = useState<string[]>([]);
   const [eventCategories, setEventCategories] = useState<any[]>([]);
   const [eventCategoriesLoading, setEventCategoriesLoading] = useState(true);
+  const [openDropdowns, setOpenDropdowns] = useState<{ [key: string]: boolean }>({});
   const [floorPlanUrl, setFloorPlanUrl] = useState('');
   const [floorPlanInput, setFloorPlanInput] = useState('');
   const [floorPlanLoadError, setFloorPlanLoadError] = useState(false);
+  const floorPlanVisualizerRef = useRef<any>(null);
 
   // Track original data for change detection
   const [originalData, setOriginalData] = useState<any>(null);
@@ -138,18 +152,41 @@ export default function EditVenueNew() {
       setZipCode(data.venue?.zip_code || '');
       setCapacity(data.venue?.max_capacity?.toString() || '');
       
-      // Load specifications - match by specification_name
+      // Load floor plan measurements first (primary source)
+      if (data.floorPlans && data.floorPlans.length > 0) {
+        const floorPlan = data.floorPlans[0];
+        if (floorPlan.length) setLength(floorPlan.length?.toString() || '');
+        if (floorPlan.width) setWidth(floorPlan.width?.toString() || '');
+        if (floorPlan.area_sqm) setFloorArea(floorPlan.area_sqm?.toString() || '');
+        if (floorPlan.height) setCeilingHeight(floorPlan.height?.toString() || '');
+      }
+      
+      // Load specifications - match by specification_name and load as array
       if (data.specifications && data.specifications.length > 0) {
         const specMap = data.specifications.reduce((acc: any, spec: any) => {
           acc[spec.specification_name] = spec.specification_value;
           return acc;
         }, {});
         
-        if (specMap['Length']) setLength(specMap['Length']);
-        if (specMap['Width']) setWidth(specMap['Width']);
-        if (specMap['Floor Area']) setFloorArea(specMap['Floor Area']);
-        if (specMap['Ceiling Height']) setCeilingHeight(specMap['Ceiling Height']);
-        if (specMap['Specifications']) setVenueSpecifications(specMap['Specifications']);
+        // Load custom specifications into array (exclude dimension specs)
+        const customSpecs = data.specifications.filter((spec: any) => 
+          !['Length', 'Width', 'Floor Area', 'Ceiling Height'].includes(spec.specification_name)
+        );
+        
+        if (customSpecs.length > 0) {
+          let maxId = 1;
+          const specsArray = customSpecs.map((spec: any) => {
+            const id = maxId++;
+            return {
+              id,
+              name: spec.specification_name,
+              value: spec.specification_value,
+              notes: spec.notes || '',
+            };
+          });
+          setVenueSpecifications(specsArray);
+          setNextSpecId(maxId);
+        }
       }
       
       // Load contacts
@@ -177,20 +214,29 @@ export default function EditVenueNew() {
       
       // Load images
       if (data.images && data.images.length > 0) {
-        setGalleryImages(data.images.map((img: any) => img.image_path));
+        // Filter out blob URLs (they're invalid after page reload)
+        const validImages = data.images.filter((img: any) => !img.image_path.startsWith('blob:'));
+        console.log("🖼️ Valid images loaded:", validImages.length, "Total in DB:", data.images.length);
+        setGalleryImages(validImages.map((img: any) => img.image_path));
+        const thumbnailIdx = validImages.findIndex((img: any) => img.is_thumbnail);
+        setThumbnailIndex(thumbnailIdx >= 0 ? thumbnailIdx : 0);
       }
       
       // Load doors
       if (data.doors && data.doors.length > 0) {
+        console.log("🚪 Loading doors from database:", data.doors);
         setDoors(data.doors.map((door: any) => ({
           id: door.door_id?.toString() || door.id || '',
           type: door.door_type || '',
           width: door.width?.toString() || '',
           height: door.height?.toString() || '',
           offsetFromCorner: door.door_offset?.toString() || '',
+          wall: door.wall || 'Left',
           swingDirection: door.swing_direction || '',
           hingePosition: door.hinge_position || '',
         })));
+      } else {
+        console.log("❌ No doors found in database, using default empty state");
       }
       
       // Load pricing
@@ -204,8 +250,20 @@ export default function EditVenueNew() {
       }
       
       if (data.overtimeRates && data.overtimeRates.length > 0) {
-        const overtime = data.overtimeRates[0];
-        setOvertimeRate(overtime.price_per_hour?.toString() || '');
+        console.log("⏰ Loading overtime rates:", data.overtimeRates);
+        let maxId = 1;
+        const overtimeArray = data.overtimeRates.map((or: any) => {
+          const id = maxId++;
+          return {
+            id,
+            rateType: or.rate_type || 'Hourly',
+            pricePerHour: or.price_per_hour?.toString() || '',
+            startHour: or.start_hour?.toString() || '',
+            endHour: or.end_hour?.toString() || '',
+          };
+        });
+        setOvertimeRates(overtimeArray);
+        setNextOvertimeRateId(maxId);
       }
       
       // Load packages with inclusions
@@ -244,6 +302,26 @@ export default function EditVenueNew() {
         setSelectedEventTypes(eventTypeNames);
       } else {
         console.warn('⚠️ No allowed event types found for this venue');
+      }
+
+      // Load seasonal pricing
+      if (data.seasonalPricing && data.seasonalPricing.length > 0) {
+        console.log("📅 Loading seasonal pricing:", data.seasonalPricing);
+        let maxId = 1;
+        const seasonalArray = data.seasonalPricing.map((sp: any) => {
+          const id = maxId++;
+          return {
+            id,
+            seasonName: sp.season_name || '',
+            startDate: sp.start_date || '',
+            endDate: sp.end_date || '',
+            rateType: sp.rate_type || 'Hourly',
+            modifierType: sp.modifier_type || 'Fixed',
+            modifierValue: sp.modifier_value?.toString() || '',
+          };
+        });
+        setSeasonalPrices(seasonalArray);
+        setNextSeasonalPriceId(maxId);
       }
 
       // Store original data for change detection
@@ -325,6 +403,7 @@ export default function EditVenueNew() {
       width: '1.0',
       height: '2.2',
       offsetFromCorner: '0.5',
+      wall: 'Left',
       swingDirection: 'Inward',
       hingePosition: 'Left',
     },
@@ -334,6 +413,7 @@ export default function EditVenueNew() {
       width: '2.0',
       height: '2.2',
       offsetFromCorner: '5.0',
+      wall: 'Right',
       swingDirection: 'Outward',
       hingePosition: 'Right',
     },
@@ -341,8 +421,8 @@ export default function EditVenueNew() {
 
   // Step 3: Media & Rules
   const [galleryImages, setGalleryImages] = useState<string[]>([]);
+  const [thumbnailIndex, setThumbnailIndex] = useState<number>(0);
   const [imageUrlInput, setImageUrlInput] = useState('');
-  const defaultFacilities = ["Tables & Chairs", "Sound System", "Projector", "Wi-Fi", "Stage", "Lighting System", "Kitchen", "Catering Service"];
   const [selectedFacilities, setSelectedFacilities] = useState<string[]>([]);
   const [customFacilities, setCustomFacilities] = useState(['Private Bar', 'Valet Parking']);
   const [customFacilityInput, setCustomFacilityInput] = useState('');
@@ -355,8 +435,7 @@ export default function EditVenueNew() {
   const [minimumHours, setMinimumHours] = useState('4');
   const [weekendRate, setWeekendRate] = useState('1200');
   const [holidayRate, setHolidayRate] = useState('1500');
-  const [overtimeRate, setOvertimeRate] = useState('350');
-  const [pricingNotes, setPricingNotes] = useState('Rates are per hour. Discounts available for bookings over 8 hours.');
+  const [pricingNotes, setPricingNotes] = useState('Rates are per hour. Discounts available for bookings over 8 hours');
   const [pricingPackages, setPricingPackages] = useState<PricingPackage[]>([
     {
       id: '1',
@@ -373,6 +452,31 @@ export default function EditVenueNew() {
       inclusions: 'All standard + premium decoration, AV setup, dedicated coordinator',
     },
   ]);
+
+  // Seasonal Pricing Interface
+  interface SeasonalPrice {
+    id: number;
+    seasonName: string;
+    startDate: string;
+    endDate: string;
+    rateType: string;
+    modifierType: string;
+    modifierValue: string;
+  }
+  const [seasonalPrices, setSeasonalPrices] = useState<SeasonalPrice[]>([]);
+  const [nextSeasonalPriceId, setNextSeasonalPriceId] = useState(1);
+
+  // Overtime Rates Interface
+  interface OvertimeRate {
+    id: number;
+    rateType: string;
+    pricePerHour: string;
+    startHour: string;
+    endHour: string;
+  }
+  const [overtimeRates, setOvertimeRates] = useState<OvertimeRate[]>([]);
+  const [nextOvertimeRateId, setNextOvertimeRateId] = useState(1);
+
   const [email, setEmail] = useState('info@grandballroom.com');
   const [phone, setPhone] = useState('+1 (555) 123-4567');
   const [showBackConfirmModal, setShowBackConfirmModal] = useState(false);
@@ -470,7 +574,51 @@ export default function EditVenueNew() {
   };
 
   const removeGalleryImage = (index: number) => {
-    setGalleryImages(galleryImages.filter((_, i) => i !== index));
+    const newImages = galleryImages.filter((_, i) => i !== index);
+    setGalleryImages(newImages);
+    if (thumbnailIndex === index) {
+      setThumbnailIndex(Math.max(0, newImages.length - 1));
+    }
+  };
+
+  const uploadGalleryImageToCloudinary = async (imageUri: string): Promise<string | null> => {
+    try {
+      console.log("🖼️ Uploading gallery image to Cloudinary:", imageUri.substring(0, 50));
+      
+      // Convert URI to blob
+      const response = await fetch(imageUri);
+      const blob = await response.blob();
+      
+      console.log("✅ Blob obtained, size:", blob.size, "bytes");
+
+      // Create FormData for Cloudinary upload
+      const formData = new FormData();
+      formData.append('file', blob);
+      formData.append('upload_preset', process.env.EXPO_PUBLIC_CLOUDINARY_PRESET || '');
+      formData.append('folder', 'eventscape/gallery');
+
+      console.log("📤 Uploading to Cloudinary with preset:", process.env.EXPO_PUBLIC_CLOUDINARY_PRESET);
+      
+      // Upload to Cloudinary
+      const cloudinaryUrl = `https://api.cloudinary.com/v1_1/${process.env.EXPO_PUBLIC_CLOUDINARY_NAME}/image/upload`;
+      const uploadResponse = await fetch(cloudinaryUrl, {
+        method: 'POST',
+        body: formData,
+      });
+
+      if (!uploadResponse.ok) {
+        const errorText = await uploadResponse.text();
+        console.error("❌ Cloudinary API error:", uploadResponse.status, errorText);
+        throw new Error(`Cloudinary upload failed: ${uploadResponse.statusText}`);
+      }
+
+      const data = await uploadResponse.json();
+      console.log("✅ Gallery image uploaded to Cloudinary:", data.secure_url);
+      return data.secure_url || data.url;
+    } catch (error) {
+      console.error("❌ Error uploading gallery image:", error);
+      return null;
+    }
   };
 
   const addDoor = () => {
@@ -480,6 +628,7 @@ export default function EditVenueNew() {
       width: '',
       height: '',
       offsetFromCorner: '',
+      wall: 'Left',
       swingDirection: 'Inward',
       hingePosition: 'Left',
     };
@@ -513,6 +662,60 @@ export default function EditVenueNew() {
 
   const deletePackage = (id: string) => {
     setPricingPackages(pricingPackages.filter((pkg) => pkg.id !== id));
+  };
+
+  const addSeasonalPrice = () => {
+    setSeasonalPrices([
+      ...seasonalPrices,
+      {
+        id: nextSeasonalPriceId,
+        seasonName: "",
+        startDate: "",
+        endDate: "",
+        rateType: "Hourly",
+        modifierType: "Fixed",
+        modifierValue: "",
+      },
+    ]);
+    setNextSeasonalPriceId(nextSeasonalPriceId + 1);
+  };
+
+  const updateSeasonalPrice = (id: number, field: string, value: string) => {
+    setSeasonalPrices(
+      seasonalPrices.map((sp) =>
+        sp.id === id ? { ...sp, [field]: value } : sp
+      )
+    );
+  };
+
+  const deleteSeasonalPrice = (id: number) => {
+    setSeasonalPrices(seasonalPrices.filter((sp) => sp.id !== id));
+  };
+
+  const addOvertimeRate = () => {
+    setOvertimeRates([
+      ...overtimeRates,
+      {
+        id: nextOvertimeRateId,
+        rateType: "Hourly",
+        pricePerHour: "",
+        startHour: "",
+        endHour: "",
+      },
+    ]);
+    setNextOvertimeRateId(nextOvertimeRateId + 1);
+  };
+
+  const updateOvertimeRate = (id: number, field: string, value: string) => {
+    setOvertimeRates(
+      overtimeRates.map((or) =>
+        or.id === id ? { ...or, [field]: value } : or
+      )
+    );
+  };
+
+  const deleteOvertimeRate = (id: number) => {
+    setOvertimeRates(overtimeRates.filter((or) => or.id !== id));
   };
 
   const validateEmail = (email: string) => {
@@ -573,35 +776,57 @@ export default function EditVenueNew() {
       }
       console.log("✅ Venue record updated");
 
+      // ===== UPDATE FLOOR PLAN MEASUREMENTS =====
+      console.log("📐 Updating floor plan measurements");
+      if (venueData?.floorPlans && venueData.floorPlans.length > 0) {
+        const floorPlan = venueData.floorPlans[0];
+        const floorAreaNum = parseFloat(floorArea) || (parseFloat(length) * parseFloat(width));
+        
+        const { error: floorPlanError } = await updateVenueFloorPlan(floorPlan.floor_plan_id, {
+          length: parseFloat(length),
+          width: parseFloat(width),
+          height: parseFloat(ceilingHeight),
+          area_sqm: floorAreaNum,
+        });
+        
+        if (floorPlanError) {
+          console.warn("⚠️ Warning: Could not update floor plan:", floorPlanError);
+        } else {
+          console.log("✅ Floor plan updated");
+        }
+      }
+
       // ===== UPDATE SPECIFICATIONS =====
-      console.log("📐 Updating specifications");
+      console.log("📋 Updating custom specifications");
       if (venueData?.specifications && venueData.specifications.length > 0) {
-        // Update each specification row individually
-        for (const spec of venueData.specifications) {
-          let newValue = '';
-          switch (spec.specification_name) {
-            case 'Length':
-              newValue = length;
-              break;
-            case 'Width':
-              newValue = width;
-              break;
-            case 'Floor Area':
-              newValue = floorArea;
-              break;
-            case 'Ceiling Height':
-              newValue = ceilingHeight || 'N/A';
-              break;
-            case 'Specifications':
-              newValue = venueSpecifications;
-              break;
+        // Only update non-dimension specifications
+        const customSpecs = venueData.specifications.filter((spec: any) => 
+          !['Length', 'Width', 'Floor Area', 'Ceiling Height'].includes(spec.specification_name)
+        );
+        
+        // Delete old custom specs
+        for (const spec of customSpecs) {
+          try {
+            await supabase.from('venue_specifications').delete().eq('specification_id', spec.specification_id);
+          } catch (err) {
+            console.warn(`Could not delete spec ${spec.specification_id}:`, err);
           }
-          
-          if (newValue) {
-            await updateVenueSpecification(spec.specification_id, {
-              specification_value: newValue,
-            });
-          }
+        }
+      }
+      
+      // Insert new custom specifications
+      if (venueSpecifications.length > 0) {
+        const newSpecsData = venueSpecifications.map((spec) => ({
+          venue_id: parseInt(venueId as string),
+          specification_name: spec.name,
+          specification_value: spec.value,
+          notes: spec.notes || null,
+        }));
+        
+        try {
+          await supabase.from('venue_specifications').insert(newSpecsData);
+        } catch (err) {
+          console.error("Error inserting custom specifications:", err);
         }
       }
       console.log("✅ Specifications updated");
@@ -659,14 +884,78 @@ export default function EditVenueNew() {
       console.log("✅ Base pricing updated");
 
       // ===== UPDATE OVERTIME RATE =====
-      console.log("⏰ Updating overtime rate");
-      if (venueData?.overtimeRates?.[0]?.overtime_rate_id) {
-        const overtimeId = venueData.overtimeRates[0].overtime_rate_id;
-        await updateVenueOvertimeRate(overtimeId, {
-          price_per_hour: parseFloat(overtimeRate),
-        });
+      console.log("⏰ Updating overtime rates");
+      // Delete old overtime rates that have IDs (from database)
+      if (venueData?.overtimeRates && venueData.overtimeRates.length > 0) {
+        for (const or of venueData.overtimeRates) {
+          try {
+            if (or.overtime_rate_id) {
+              await supabase.from('venue_overtime_rates').delete().eq('overtime_rate_id', or.overtime_rate_id);
+            }
+          } catch (err) {
+            console.warn(`Could not delete overtime rate ${or.overtime_rate_id}:`, err);
+          }
+        }
       }
-      console.log("✅ Overtime rate updated");
+
+      // Insert new overtime rates
+      for (const or of overtimeRates) {
+        try {
+          const overtimeData = {
+            venue_id: numVenueId,
+            rate_type: or.rateType as any,
+            price_per_hour: parseFloat(or.pricePerHour),
+            start_hour: or.startHour ? parseInt(or.startHour) : undefined,
+            end_hour: or.endHour ? parseInt(or.endHour) : undefined,
+          };
+
+          const { error: overtimeError } = await supabase.from('venue_overtime_rates').insert(overtimeData);
+          if (overtimeError) {
+            console.warn("⚠️ Error inserting overtime rate:", overtimeError);
+          }
+        } catch (err) {
+          console.error("Error inserting overtime rate:", err);
+        }
+      }
+      console.log("✅ Overtime rates updated");
+
+      // ===== UPDATE SEASONAL PRICING =====
+      console.log("📅 Updating seasonal pricing");
+      // Delete old seasonal pricing that have IDs (from database)
+      if (venueData?.seasonalPricing && venueData.seasonalPricing.length > 0) {
+        for (const sp of venueData.seasonalPricing) {
+          try {
+            if (sp.seasonal_pricing_id) {
+              await supabase.from('venue_seasonal_pricing').delete().eq('seasonal_pricing_id', sp.seasonal_pricing_id);
+            }
+          } catch (err) {
+            console.warn(`Could not delete seasonal pricing ${sp.seasonal_pricing_id}:`, err);
+          }
+        }
+      }
+      
+      // Insert new seasonal pricing
+      if (seasonalPrices.length > 0) {
+        const seasonalData = seasonalPrices.map((sp) => ({
+          venue_id: parseInt(venueId as string),
+          season_name: sp.seasonName,
+          start_date: sp.startDate,
+          end_date: sp.endDate,
+          rate_type: sp.rateType,
+          modifier_type: sp.modifierType,
+          modifier_value: parseFloat(sp.modifierValue) || 0,
+        }));
+        
+        try {
+          const { error: seasonalError } = await supabase.from('venue_seasonal_pricing').insert(seasonalData);
+          if (seasonalError) {
+            console.warn("⚠️ Error inserting seasonal pricing:", seasonalError);
+          }
+        } catch (err) {
+          console.error("Error inserting seasonal pricing:", err);
+        }
+      }
+      console.log("✅ Seasonal pricing updated");
 
       // ===== UPDATE DOORS =====
       console.log("🚪 Updating doors");
@@ -685,6 +974,7 @@ export default function EditVenueNew() {
               width: parseFloat(updatedDoor.width),
               height: parseFloat(updatedDoor.height),
               door_offset: parseFloat(updatedDoor.offsetFromCorner),
+              wall: updatedDoor.wall,
               swing_direction: updatedDoor.swingDirection,
               hinge_position: updatedDoor.hingePosition,
             });
@@ -695,23 +985,58 @@ export default function EditVenueNew() {
 
       // ===== UPDATE IMAGES =====
       console.log("🖼️ Updating images");
+      
+      // Upload ONLY new blob URLs to Cloudinary
+      const uploadedImageUrls: { [key: string]: string } = {};
+      for (let i = 0; i < galleryImages.length; i++) {
+        const imageUri = galleryImages[i];
+        // Only upload if it's a blob URL (new image that hasn't been uploaded yet)
+        if (imageUri.startsWith('blob:') || imageUri.includes('file://')) {
+          console.log(`📤 Uploading new image ${i + 1}/${galleryImages.length}...`);
+          const uploadedUrl = await uploadGalleryImageToCloudinary(imageUri);
+          if (uploadedUrl) {
+            uploadedImageUrls[imageUri] = uploadedUrl;
+            galleryImages[i] = uploadedUrl; // Update the array with uploaded URL
+            setGalleryImages([...galleryImages]);
+          } else {
+            Alert.alert("Upload Error", `Failed to upload image ${i + 1}. Continuing with other images...`);
+          }
+        } else {
+          console.log(`✓ Image ${i + 1} already uploaded, keeping as is: ${imageUri.substring(0, 50)}...`);
+        }
+      }
+      
       if (venueData?.images && venueData.images.length > 0) {
-        // Delete removed images
+        // Only delete images that were explicitly removed by user (not in current galleryImages)
         for (const dbImage of venueData.images) {
           if (!galleryImages.includes(dbImage.image_path)) {
+            console.log(`🗑️ Deleting removed image: ${dbImage.image_id}`);
             await deleteVenueImage(dbImage.image_id);
           }
         }
-        // Update existing images (if needed)
-        for (const image of galleryImages) {
+        
+        // Update thumbnail status for all images
+        for (let i = 0; i < galleryImages.length; i++) {
+          const image = galleryImages[i];
           const existingImage = venueData.images.find((img: any) => img.image_path === image);
+          
           if (!existingImage) {
             // New image - create it
+            console.log(`✨ Creating new image: ${image}`);
             await createVenueImage({
               venue_id: numVenueId,
               image_path: image,
-              is_thumbnail: false,
+              is_thumbnail: i === thumbnailIndex,
             });
+          } else {
+            // Existing image - just update thumbnail status if changed
+            if ((i === thumbnailIndex) !== existingImage.is_thumbnail) {
+              console.log(`🔄 Updating thumbnail status for image: ${image}`);
+              await supabase
+                .from('venue_images')
+                .update({ is_thumbnail: i === thumbnailIndex })
+                .eq('image_id', existingImage.image_id);
+            }
           }
         }
       }
@@ -768,7 +1093,7 @@ export default function EditVenueNew() {
           text: "OK",
           onPress: () => {
             console.log("✅ User pressed OK, navigating back...");
-            router.back();
+            router.replace('/administrator_pages/venue_management/all_venues');
           },
         },
       ]);
@@ -776,7 +1101,7 @@ export default function EditVenueNew() {
       // Backup navigation
       setTimeout(() => {
         console.log("⏱️ Backup timeout: navigating back...");
-        router.back();
+        router.replace('/administrator_pages/venue_management/all_venues');
       }, 3000);
     } catch (err: any) {
       console.error("❌ Error updating venue:", err);
@@ -786,7 +1111,7 @@ export default function EditVenueNew() {
   };
 
   const handleCancel = () => {
-    router.back();
+    router.replace('/administrator_pages/venue_management/all_venues');
   };
 
   const venueTypesList = ['Conference Hall', 'Ballroom', 'Hotel Banquet', 'Restaurant', 'Event Center', 'Country Club', 'Museum'];
@@ -1069,24 +1394,111 @@ export default function EditVenueNew() {
             <View style={styles.stepContent}>
               <Text style={[styles.cardTitle, { color: theme.text }]}>Technical Specifications</Text>
 
-              {/* Dimensions Card */}
+              {/* Venue Specifications Card */}
               <View style={[styles.card, { backgroundColor: theme.card, borderColor: theme.border }]}>
-                <Text style={[styles.sectionTitle, { color: theme.text }]}>Dimensions & Area</Text>
-                <View style={styles.dimensionsGrid}>
-                  <View style={styles.dimensionField}>
-                    <Text style={[styles.label, { color: theme.text }]}>Length (m) *</Text>
-                    <TextInput
-                      style={[styles.input, { color: theme.text, borderColor: theme.border }]}
-                      placeholder="0"
-                      placeholderTextColor={theme.textSecondary}
-                      value={length}
-                      onChangeText={(val) => {
-                        setLength(val);
-                        calculateFloorArea(val, width);
-                      }}
-                      keyboardType="decimal-pad"
-                    />
+                <Text style={[styles.sectionTitle, { color: theme.text }]}>Venue Specifications *</Text>
+
+                {/* Specification Name Input */}
+                <View style={styles.formGroup}>
+                  <Text style={[styles.label, { color: theme.text }]}>Specification Name *</Text>
+                  <TextInput
+                    style={[styles.input, { backgroundColor: theme.lightBg, color: theme.text, borderColor: theme.border }]}
+                    placeholder="e.g., Capacity, Parking, Air Conditioning"
+                    placeholderTextColor={theme.textSecondary}
+                    value={customSpecificationInput}
+                    onChangeText={setCustomSpecificationInput}
+                  />
+                </View>
+
+                {/* Specification Value Input */}
+                <View style={styles.formGroup}>
+                  <Text style={[styles.label, { color: theme.text }]}>Specification Value *</Text>
+                  <TextInput
+                    style={[styles.input, { backgroundColor: theme.lightBg, color: theme.text, borderColor: theme.border }]}
+                    placeholder="e.g., 300 pax, 50 slots, Yes"
+                    placeholderTextColor={theme.textSecondary}
+                    value={specValueInput}
+                    onChangeText={setSpecValueInput}
+                  />
+                </View>
+
+                {/* Specification Notes Input */}
+                <View style={styles.formGroup}>
+                  <Text style={[styles.label, { color: theme.text }]}>Notes (Optional)</Text>
+                  <TextInput
+                    style={[styles.notesInput, { backgroundColor: theme.lightBg, color: theme.text, borderColor: theme.border }]}
+                    placeholder="e.g., Maximum seated capacity, On-site parking available"
+                    placeholderTextColor={theme.textSecondary}
+                    value={specNotesInput}
+                    onChangeText={setSpecNotesInput}
+                    multiline
+                    numberOfLines={2}
+                  />
+                </View>
+
+                {/* Add Button */}
+                <TouchableOpacity
+                  style={[styles.addButton, { backgroundColor: Palette.primary, alignSelf: 'flex-start', marginBottom: 16 }]}
+                  onPress={() => {
+                    if (customSpecificationInput.trim() && specValueInput.trim()) {
+                      setVenueSpecifications([
+                        ...venueSpecifications,
+                        {
+                          id: nextSpecId,
+                          name: customSpecificationInput,
+                          value: specValueInput,
+                          notes: specNotesInput,
+                        },
+                      ]);
+                      setNextSpecId(nextSpecId + 1);
+                      setCustomSpecificationInput("");
+                      setSpecValueInput("");
+                      setSpecNotesInput("");
+                    }
+                  }}
+                >
+                  <Ionicons name="add" size={20} color={Palette.black} />
+                  <Text style={[styles.addButtonText, { color: Palette.black }]}>Add Specification</Text>
+                </TouchableOpacity>
+
+                {/* Specifications Display */}
+                {venueSpecifications.length > 0 && (
+                  <View style={styles.specificationsContainer}>
+                    <Text style={[styles.label, { color: theme.text, marginBottom: 12 }]}>Added Specifications ({venueSpecifications.length})</Text>
+                    {venueSpecifications.map((spec, index) => (
+                      <View
+                        key={spec.id}
+                        style={[
+                          styles.specCard,
+                          { backgroundColor: theme.lightBg, borderColor: theme.border },
+                        ]}
+                      >
+                        <View style={{ flex: 1 }}>
+                          <Text style={[styles.specName, { color: theme.text }]}>{spec.name}</Text>
+                          <Text style={[styles.specValue, { color: theme.textSecondary }]}>{spec.value}</Text>
+                          {spec.notes && (
+                            <Text style={[styles.specNotes, { color: theme.textSecondary }]}>{spec.notes}</Text>
+                          )}
+                        </View>
+                        <TouchableOpacity
+                          onPress={() => {
+                            setVenueSpecifications(venueSpecifications.filter((s) => s.id !== spec.id));
+                          }}
+                          style={{ marginLeft: 12 }}
+                        >
+                          <Ionicons name="trash" size={18} color={Palette.red} />
+                        </TouchableOpacity>
+                      </View>
+                    ))}
                   </View>
+                )}
+              </View>
+
+              {/* Dimensions & Floor Plan Card */}
+              <View style={[styles.card, { backgroundColor: theme.card, borderColor: theme.border, marginTop: 16 }]}>
+                <Text style={[styles.sectionTitle, { color: theme.text }]}>Venue Measurement & Floor Plan *</Text>
+
+                <View style={styles.dimensionsGrid}>
                   <View style={styles.dimensionField}>
                     <Text style={[styles.label, { color: theme.text }]}>Width (m) *</Text>
                     <TextInput
@@ -1096,13 +1508,44 @@ export default function EditVenueNew() {
                       value={width}
                       onChangeText={(val) => {
                         setWidth(val);
-                        calculateFloorArea(length, val);
+                        if (length && val) {
+                          const area = (parseFloat(length) * parseFloat(val)).toFixed(2);
+                          setFloorArea(area);
+                        }
                       }}
                       keyboardType="decimal-pad"
                     />
                   </View>
                   <View style={styles.dimensionField}>
-                    <Text style={[styles.label, { color: theme.text }]}>Floor Area (m²)</Text>
+                    <Text style={[styles.label, { color: theme.text }]}>Length (m) *</Text>
+                    <TextInput
+                      style={[styles.input, { color: theme.text, borderColor: theme.border }]}
+                      placeholder="0"
+                      placeholderTextColor={theme.textSecondary}
+                      value={length}
+                      onChangeText={(val) => {
+                        setLength(val);
+                        if (width && val) {
+                          const area = (parseFloat(val) * parseFloat(width)).toFixed(2);
+                          setFloorArea(area);
+                        }
+                      }}
+                      keyboardType="decimal-pad"
+                    />
+                  </View>
+                  <View style={styles.dimensionField}>
+                    <Text style={[styles.label, { color: theme.text }]}>Height (m)</Text>
+                    <TextInput
+                      style={[styles.input, { color: theme.text, borderColor: theme.border }]}
+                      placeholder="0"
+                      placeholderTextColor={theme.textSecondary}
+                      value={ceilingHeight}
+                      onChangeText={setCeilingHeight}
+                      keyboardType="decimal-pad"
+                    />
+                  </View>
+                  <View style={styles.dimensionField}>
+                    <Text style={[styles.label, { color: theme.text }]}>Area (m²)</Text>
                     <TextInput
                       style={[
                         styles.input,
@@ -1114,36 +1557,20 @@ export default function EditVenueNew() {
                       editable={false}
                     />
                   </View>
-                  <View style={styles.dimensionField}>
-                    <Text style={[styles.label, { color: theme.text }]}>Ceiling Height (m)</Text>
-                    <TextInput
-                      style={[styles.input, { color: theme.text, borderColor: theme.border }]}
-                      placeholder="0"
-                      placeholderTextColor={theme.textSecondary}
-                      value={ceilingHeight}
-                      onChangeText={setCeilingHeight}
-                      keyboardType="decimal-pad"
-                    />
-                  </View>
                 </View>
-              </View>
 
-              {/* Specifications Card */}
-              <View style={[styles.card, { backgroundColor: theme.card, borderColor: theme.border }]}>
-                <Text style={[styles.sectionTitle, { color: theme.text }]}>Venue Specifications *</Text>
-                <TextInput
-                  style={[styles.specInput, { backgroundColor: theme.lightBg, color: theme.text, borderColor: theme.border }]}
-                  placeholder="Enter venue specifications..."
-                  placeholderTextColor={theme.textSecondary}
-                  value={venueSpecifications}
-                  onChangeText={setVenueSpecifications}
-                  multiline
-                  numberOfLines={4}
+                {/* Floor Plan Visualizer */}
+                <VenueFloorPlanVisualizer
+                  ref={floorPlanVisualizerRef}
+                  length={length}
+                  width={width}
+                  doors={doors as any}
+                  theme={theme}
                 />
               </View>
 
-              {/* Event Types Card */}
-              <View style={[styles.card, { backgroundColor: theme.card, borderColor: theme.border }]}>
+              {/* Allowed Event Types Card */}
+              <View style={[styles.card, { backgroundColor: theme.card, borderColor: theme.border, marginTop: 16 }]}>
                 <Text style={[styles.sectionTitle, { color: theme.text }]}>Allowed Event Types</Text>
                 {eventCategoriesLoading ? (
                   <Text style={{ color: theme.textSecondary, textAlign: 'center', paddingVertical: 16 }}>Loading event types...</Text>
@@ -1151,26 +1578,26 @@ export default function EditVenueNew() {
                   <View style={styles.chipGrid}>
                     {eventCategories.map((category) => (
                       <TouchableOpacity
-                        key={category.name}
+                        key={category.id}
                         style={[
                           styles.chip,
                           {
-                            backgroundColor: selectedEventTypes.includes(category.name)
+                            backgroundColor: selectedEventTypes.includes(category.id.toString())
                               ? Palette.primary
                               : theme.lightBg,
-                            borderColor: selectedEventTypes.includes(category.name)
+                            borderColor: selectedEventTypes.includes(category.id.toString())
                               ? Palette.primary
                               : theme.border,
                           },
                         ]}
-                        onPress={() => toggleEventType(category.name)}
+                        onPress={() => toggleEventType(category.id.toString())}
                       >
                         <Text
                           style={[
                             styles.chipText,
                             {
-                              color: selectedEventTypes.includes(category.name) ? Palette.black : theme.text,
-                              fontWeight: selectedEventTypes.includes(category.name) ? '600' : '400',
+                              color: selectedEventTypes.includes(category.id.toString()) ? Palette.black : theme.text,
+                              fontWeight: selectedEventTypes.includes(category.id.toString()) ? '600' : '400',
                             },
                           ]}
                         >
@@ -1184,69 +1611,8 @@ export default function EditVenueNew() {
                 )}
               </View>
 
-              {/* Floor Plan Card */}
-              <View style={[styles.card, { backgroundColor: theme.card, borderColor: theme.border }]}>
-                <Text style={[styles.sectionTitle, { color: theme.text }]}>Floor Plan</Text>
-                <View>
-                  {floorPlanUrl && !floorPlanLoadError ? (
-                    <Image
-                      source={{ uri: floorPlanUrl }}
-                      style={styles.floorPlanThumbnail}
-                      onError={() => setFloorPlanLoadError(true)}
-                    />
-                  ) : (
-                    <View style={[styles.floorPlanThumbnail, { backgroundColor: theme.lightBg, justifyContent: 'center', alignItems: 'center' }]}>
-                      <Ionicons name="image-outline" size={40} color={theme.textSecondary} />
-                      <Text style={{ color: theme.textSecondary, marginTop: 8 }}>No floor plan added</Text>
-                    </View>
-                  )}
-                  {floorPlanUrl && !floorPlanLoadError && (
-                    <View style={styles.floorPlanActions}>
-                      <TouchableOpacity
-                        style={[styles.button, { backgroundColor: Palette.primary }]}
-                        onPress={() => {
-                          setFloorPlanUrl('');
-                          setFloorPlanLoadError(false);
-                        }}
-                      >
-                        <Text style={[styles.buttonText, { color: Palette.black }]}>Replace</Text>
-                      </TouchableOpacity>
-                      <TouchableOpacity
-                        style={[styles.button, { backgroundColor: Palette.red }]}
-                        onPress={() => {
-                          setFloorPlanUrl('');
-                          setFloorPlanLoadError(false);
-                        }}
-                      >
-                        <Text style={[styles.buttonText, { color: Palette.white }]}>Remove</Text>
-                      </TouchableOpacity>
-                    </View>
-                  )}
-                </View>
-                <View style={styles.uploadSection}>
-                  <TextInput
-                    style={[styles.input, { color: theme.text, borderColor: theme.border }]}
-                    placeholder="Enter floor plan image URL"
-                    placeholderTextColor={theme.textSecondary}
-                    value={floorPlanInput}
-                    onChangeText={setFloorPlanInput}
-                  />
-                  <TouchableOpacity
-                    style={[styles.button, { backgroundColor: Palette.primary, marginTop: 8 }]}
-                    onPress={() => {
-                      if (floorPlanInput.trim()) {
-                        setFloorPlanUrl(floorPlanInput);
-                        setFloorPlanInput('');
-                      }
-                    }}
-                  >
-                    <Text style={[styles.buttonText, { color: Palette.black }]}>Upload</Text>
-                  </TouchableOpacity>
-                </View>
-              </View>
-
               {/* Door Placement Card */}
-              <View style={[styles.card, { backgroundColor: theme.card, borderColor: theme.border }]}>
+              <View style={[styles.card, { backgroundColor: theme.card, borderColor: theme.border, marginTop: 16 }]}>
                 <Text style={[styles.sectionTitle, { color: theme.text }]}>Door Placement</Text>
                 {doors.map((door, index) => (
                   <View
@@ -1259,18 +1625,36 @@ export default function EditVenueNew() {
                     <View style={styles.doorHeader}>
                       <Text style={[styles.doorTitle, { color: theme.text }]}>Door {index + 1}</Text>
                       <TouchableOpacity onPress={() => deleteDoor(door.id)}>
-                        <Text style={{ fontSize: 18, color: Palette.red }}>🗑️</Text>
+                        <Text style={{ fontSize: 18, color: Palette.red }}>❌</Text>
                       </TouchableOpacity>
                     </View>
 
                     <View style={styles.doorGrid}>
                       <View style={styles.doorField}>
                         <Text style={[styles.label, { color: theme.text }]}>Type</Text>
-                        <TextInput
-                          style={[styles.input, { color: theme.text, borderColor: theme.border }]}
-                          value={door.type}
-                          onChangeText={(val) => updateDoor(door.id, 'type', val)}
-                        />
+                        <TouchableOpacity
+                          style={[styles.dropdown, { backgroundColor: theme.lightBg, borderColor: theme.border }]}
+                          onPress={() => setOpenDropdowns({ ...openDropdowns, [`doorType_${door.id}`]: !openDropdowns[`doorType_${door.id}`] })}
+                        >
+                          <Text style={[styles.dropdownText, { color: theme.text }]}>{door.type}</Text>
+                          <Ionicons name={openDropdowns[`doorType_${door.id}`] ? "chevron-up" : "chevron-down"} size={20} color={theme.text} />
+                        </TouchableOpacity>
+                        {openDropdowns[`doorType_${door.id}`] && (
+                          <View style={[styles.dropdownMenu, { backgroundColor: theme.card, borderColor: theme.border, marginTop: 4 }]}>
+                            {["Single Door", "Double Door", "Sliding Door", "Pocket Door"].map((option) => (
+                              <TouchableOpacity
+                                key={option}
+                                style={styles.dropdownItem}
+                                onPress={() => {
+                                  updateDoor(door.id, 'type', option);
+                                  setOpenDropdowns({ ...openDropdowns, [`doorType_${door.id}`]: false });
+                                }}
+                              >
+                                <Text style={[styles.dropdownItemText, { color: theme.text }]}>{option}</Text>
+                              </TouchableOpacity>
+                            ))}
+                          </View>
+                        )}
                       </View>
                       <View style={styles.doorField}>
                         <Text style={[styles.label, { color: theme.text }]}>Width (m)</Text>
@@ -1301,19 +1685,55 @@ export default function EditVenueNew() {
                       </View>
                       <View style={styles.doorField}>
                         <Text style={[styles.label, { color: theme.text }]}>Swing</Text>
-                        <TextInput
-                          style={[styles.input, { color: theme.text, borderColor: theme.border }]}
-                          value={door.swingDirection}
-                          onChangeText={(val) => updateDoor(door.id, 'swingDirection', val)}
-                        />
+                        <TouchableOpacity
+                          style={[styles.dropdown, { backgroundColor: theme.lightBg, borderColor: theme.border }]}
+                          onPress={() => setOpenDropdowns({ ...openDropdowns, [`doorSwing_${door.id}`]: !openDropdowns[`doorSwing_${door.id}`] })}
+                        >
+                          <Text style={[styles.dropdownText, { color: theme.text }]}>{door.swingDirection}</Text>
+                          <Ionicons name={openDropdowns[`doorSwing_${door.id}`] ? "chevron-up" : "chevron-down"} size={20} color={theme.text} />
+                        </TouchableOpacity>
+                        {openDropdowns[`doorSwing_${door.id}`] && (
+                          <View style={[styles.dropdownMenu, { backgroundColor: theme.card, borderColor: theme.border, marginTop: 4 }]}>
+                            {["Inward", "Outward"].map((option) => (
+                              <TouchableOpacity
+                                key={option}
+                                style={styles.dropdownItem}
+                                onPress={() => {
+                                  updateDoor(door.id, 'swingDirection', option);
+                                  setOpenDropdowns({ ...openDropdowns, [`doorSwing_${door.id}`]: false });
+                                }}
+                              >
+                                <Text style={[styles.dropdownItemText, { color: theme.text }]}>{option}</Text>
+                              </TouchableOpacity>
+                            ))}
+                          </View>
+                        )}
                       </View>
                       <View style={styles.doorField}>
                         <Text style={[styles.label, { color: theme.text }]}>Hinge</Text>
-                        <TextInput
-                          style={[styles.input, { color: theme.text, borderColor: theme.border }]}
-                          value={door.hingePosition}
-                          onChangeText={(val) => updateDoor(door.id, 'hingePosition', val)}
-                        />
+                        <TouchableOpacity
+                          style={[styles.dropdown, { backgroundColor: theme.lightBg, borderColor: theme.border }]}
+                          onPress={() => setOpenDropdowns({ ...openDropdowns, [`doorHinge_${door.id}`]: !openDropdowns[`doorHinge_${door.id}`] })}
+                        >
+                          <Text style={[styles.dropdownText, { color: theme.text }]}>{door.hingePosition}</Text>
+                          <Ionicons name={openDropdowns[`doorHinge_${door.id}`] ? "chevron-up" : "chevron-down"} size={20} color={theme.text} />
+                        </TouchableOpacity>
+                        {openDropdowns[`doorHinge_${door.id}`] && (
+                          <View style={[styles.dropdownMenu, { backgroundColor: theme.card, borderColor: theme.border, marginTop: 4 }]}>
+                            {["Left", "Right", "Center"].map((option) => (
+                              <TouchableOpacity
+                                key={option}
+                                style={styles.dropdownItem}
+                                onPress={() => {
+                                  updateDoor(door.id, 'hingePosition', option);
+                                  setOpenDropdowns({ ...openDropdowns, [`doorHinge_${door.id}`]: false });
+                                }}
+                              >
+                                <Text style={[styles.dropdownItemText, { color: theme.text }]}>{option}</Text>
+                              </TouchableOpacity>
+                            ))}
+                          </View>
+                        )}
                       </View>
                     </View>
                   </View>
@@ -1338,6 +1758,22 @@ export default function EditVenueNew() {
                 <Text style={[styles.sectionTitle, { color: theme.text }]}>
                   Gallery / Assets Upload * ({galleryImages.length}/10)
                 </Text>
+
+                {/* Thumbnail Preview Banner */}
+                {galleryImages.length > 0 && galleryImages[thumbnailIndex] ? (
+                  <View style={styles.thumbnailPreviewContainer}>
+                    <Image 
+                      source={{ uri: galleryImages[thumbnailIndex] }} 
+                      style={styles.thumbnailPreview}
+                      onError={() => console.error('Failed to load thumbnail preview')}
+                    />
+                    <View style={styles.thumbnailPreviewBadge}>
+                      <Ionicons name="checkmark-circle" size={18} color="white" />
+                      <Text style={{ color: "white", fontSize: 13, fontWeight: "600", marginLeft: 6 }}>Featured Thumbnail</Text>
+                    </View>
+                  </View>
+                ) : null}
+
                 <View style={styles.thumbnailGrid}>
                   {galleryImages.length === 0 ? (
                     <View style={{ width: "100%", alignItems: "center", paddingVertical: 32, marginBottom: 16, borderRadius: 12, backgroundColor: theme.lightBg, borderWidth: 1, borderStyle: "dashed", borderColor: theme.border }}>
@@ -1347,14 +1783,42 @@ export default function EditVenueNew() {
                     </View>
                   ) : (
                     galleryImages.map((image, index) => (
-                      <View key={index} style={styles.thumbnailWrapper}>
-                        <Image source={{ uri: image }} style={styles.thumbnail} />
-                        <TouchableOpacity
-                          style={styles.deleteOverlay}
-                          onPress={() => removeGalleryImage(index)}
-                        >
-                          <Text style={styles.deleteText}>✕</Text>
-                        </TouchableOpacity>
+                      <View key={index} style={[styles.imageCard, { 
+                        backgroundColor: theme.card, 
+                        borderColor: thumbnailIndex === index ? Palette.primary : theme.border,
+                        borderWidth: 2
+                      }]}>
+                        {image ? (
+                          <Image 
+                            source={{ uri: image }} 
+                            style={styles.thumbnail}
+                            onError={() => console.error('Failed to load image at index', index)}
+                          />
+                        ) : (
+                          <View style={[styles.thumbnail, { backgroundColor: '#f0f0f0', justifyContent: 'center', alignItems: 'center' }]}>
+                            <Ionicons name="image-outline" size={32} color={theme.textSecondary} />
+                          </View>
+                        )}
+                        <View style={styles.imageActions}>
+                          <TouchableOpacity
+                            style={[styles.thumbnailBadge, { 
+                              backgroundColor: thumbnailIndex === index ? Palette.primary : theme.lightBg 
+                            }]}
+                            onPress={() => setThumbnailIndex(index)}
+                          >
+                            <Text style={[styles.badgeText, { 
+                              color: thumbnailIndex === index ? "white" : theme.text 
+                            }]}>
+                              {thumbnailIndex === index ? "Thumbnail" : "Set"}
+                            </Text>
+                          </TouchableOpacity>
+                          <TouchableOpacity
+                            style={styles.removeImageButton}
+                            onPress={() => removeGalleryImage(index)}
+                          >
+                            <Ionicons name="trash" size={18} color={Palette.red} />
+                          </TouchableOpacity>
+                        </View>
                       </View>
                     ))
                   )}
@@ -1362,6 +1826,20 @@ export default function EditVenueNew() {
                 <TouchableOpacity
                   style={[styles.uploadButton, { backgroundColor: theme.lightBg, borderColor: theme.border }]}
                   disabled={galleryImages.length >= 10}
+                  onPress={async () => {
+                    if (galleryImages.length >= 10) {
+                      Alert.alert("Limit Reached", "Maximum 10 images allowed");
+                      return;
+                    }
+                    const result = await ImagePicker.launchImageLibraryAsync({
+                      mediaTypes: ['images'],
+                      allowsEditing: false,
+                      quality: 1,
+                    });
+                    if (!result.canceled && result.assets[0]) {
+                      setGalleryImages([...galleryImages, result.assets[0].uri]);
+                    }
+                  }}
                 >
                   <Ionicons name="cloud-upload" size={32} color={Palette.primary} />
                   <Text style={[styles.uploadButtonText, { color: theme.text }]}>Click to upload images</Text>
@@ -1374,41 +1852,6 @@ export default function EditVenueNew() {
                 <Text style={[styles.sectionTitle, { color: theme.text }]}>Facilities / Inclusions</Text>
 
                 <Text style={[styles.subsectionTitle, { color: theme.textSecondary, marginTop: 12 }]}>
-                  Default Facilities
-                </Text>
-                <View style={styles.chipGrid}>
-                  {defaultFacilities.map((facility) => (
-                    <TouchableOpacity
-                      key={facility}
-                      style={[
-                        styles.chip,
-                        {
-                          backgroundColor: selectedFacilities.includes(facility)
-                            ? Palette.primary
-                            : theme.lightBg,
-                          borderColor: selectedFacilities.includes(facility)
-                            ? Palette.primary
-                            : theme.border,
-                        },
-                      ]}
-                      onPress={() => toggleFacility(facility)}
-                    >
-                      <Text
-                        style={[
-                          styles.chipText,
-                          {
-                            color: selectedFacilities.includes(facility) ? Palette.black : theme.text,
-                            fontWeight: selectedFacilities.includes(facility) ? '600' : '400',
-                          },
-                        ]}
-                      >
-                        {facility}
-                      </Text>
-                    </TouchableOpacity>
-                  ))}
-                </View>
-
-                <Text style={[styles.subsectionTitle, { color: theme.textSecondary, marginTop: 16 }]}>
                   Custom Facilities
                 </Text>
                 <View style={styles.chipGrid}>
@@ -1519,17 +1962,6 @@ export default function EditVenueNew() {
                       keyboardType="decimal-pad"
                     />
                   </View>
-                  <View style={styles.priceField}>
-                    <Text style={[styles.label, { color: theme.text }]}>Overtime Rate (₱)</Text>
-                    <TextInput
-                      style={[styles.input, { color: theme.text, borderColor: theme.border }]}
-                      placeholder="0"
-                      placeholderTextColor={theme.textSecondary}
-                      value={overtimeRate}
-                      onChangeText={setOvertimeRate}
-                      keyboardType="decimal-pad"
-                    />
-                  </View>
                 </View>
                 <Text style={[styles.label, { color: theme.text, marginTop: 16 }]}>Pricing Notes / Terms</Text>
                 <TextInput
@@ -1546,15 +1978,127 @@ export default function EditVenueNew() {
                 />
               </View>
 
+              {/* Overtime Rates Card */}
+              <View style={[styles.card, { backgroundColor: theme.card, borderColor: theme.border, marginTop: 16 }]}>
+                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+                  <Text style={[styles.sectionTitle, { color: theme.text }]}>Overtime Rates (Optional)</Text>
+                  <TouchableOpacity
+                    style={{ backgroundColor: Palette.primary, borderRadius: 8, flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, paddingVertical: 10, gap: 8 }}
+                    onPress={addOvertimeRate}
+                  >
+                    <Ionicons name="add" size={20} color="white" />
+                    <Text style={{ color: 'white', fontSize: 14, fontWeight: '600' }}>Add Rate</Text>
+                  </TouchableOpacity>
+                </View>
+
+                {overtimeRates.map((rate) => (
+                  <View
+                    key={rate.id}
+                    style={[
+                      styles.packageCard,
+                      { backgroundColor: theme.lightBg, borderColor: theme.border },
+                    ]}
+                  >
+                    <View style={styles.packageCardHeader}>
+                      <Text style={[styles.label, { color: theme.text, fontWeight: '600', fontSize: 14 }]}>Rate {overtimeRates.indexOf(rate) + 1}</Text>
+                      <TouchableOpacity onPress={() => deleteOvertimeRate(rate.id)}>
+                        <Ionicons name="trash" size={20} color={Palette.red} />
+                      </TouchableOpacity>
+                    </View>
+
+                    <View style={[styles.packageGrid, { overflow: 'visible', zIndex: 5 }]}>
+                      <View style={[styles.packageField, { overflow: 'visible', zIndex: 6 }]}>
+                        <Text style={[styles.label, { color: theme.text }]}>Rate Type</Text>
+                        <TouchableOpacity
+                          style={[styles.dropdown, { backgroundColor: theme.card, borderColor: theme.border }]}
+                          onPress={() => setOpenDropdowns({ ...openDropdowns, [`overtimeRateType_${rate.id}`]: !openDropdowns[`overtimeRateType_${rate.id}`] })}
+                        >
+                          <Text style={[styles.dropdownText, { color: theme.text }]}>{rate.rateType}</Text>
+                          <Ionicons name={openDropdowns[`overtimeRateType_${rate.id}`] ? "chevron-up" : "chevron-down"} size={20} color={theme.text} />
+                        </TouchableOpacity>
+                        {openDropdowns[`overtimeRateType_${rate.id}`] && (
+                          <View style={[styles.dropdownMenu, { backgroundColor: theme.card, borderColor: theme.border, marginTop: 4, zIndex: 100 }]}>
+                            {["Hourly", "Daily"].map((type) => (
+                              <TouchableOpacity
+                                key={type}
+                                style={styles.dropdownItem}
+                                onPress={() => {
+                                  updateOvertimeRate(rate.id, "rateType", type);
+                                  setOpenDropdowns({ ...openDropdowns, [`overtimeRateType_${rate.id}`]: false });
+                                }}
+                              >
+                                <Text style={[styles.dropdownItemText, { color: theme.text }]}>{type}</Text>
+                              </TouchableOpacity>
+                            ))}
+                          </View>
+                        )}
+                      </View>
+                      <View style={styles.packageField}>
+                        <Text style={[styles.label, { color: theme.text }]}>Price Per Hour (₱)</Text>
+                        <TextInput
+                          style={[
+                            styles.input,
+                            { color: theme.text, borderColor: theme.border },
+                          ]}
+                          placeholder="0.00"
+                          placeholderTextColor={theme.textSecondary}
+                          value={rate.pricePerHour}
+                          onChangeText={(val) => updateOvertimeRate(rate.id, 'pricePerHour', val)}
+                          keyboardType="decimal-pad"
+                        />
+                      </View>
+                    </View>
+
+                    <View style={styles.packageGrid}>
+                      <View style={styles.packageField}>
+                        <Text style={[styles.label, { color: theme.text }]}>Start Hour</Text>
+                        <TextInput
+                          style={[
+                            styles.input,
+                            { color: theme.text, borderColor: theme.border },
+                          ]}
+                          placeholder="0"
+                          placeholderTextColor={theme.textSecondary}
+                          value={rate.startHour}
+                          onChangeText={(val) => updateOvertimeRate(rate.id, 'startHour', val)}
+                          keyboardType="numeric"
+                        />
+                      </View>
+                      <View style={styles.packageField}>
+                        <Text style={[styles.label, { color: theme.text }]}>End Hour (Optional)</Text>
+                        <TextInput
+                          style={[
+                            styles.input,
+                            { color: theme.text, borderColor: theme.border },
+                          ]}
+                          placeholder="0"
+                          placeholderTextColor={theme.textSecondary}
+                          value={rate.endHour}
+                          onChangeText={(val) => updateOvertimeRate(rate.id, 'endHour', val)}
+                          keyboardType="numeric"
+                        />
+                      </View>
+                    </View>
+                  </View>
+                ))}
+
+                {overtimeRates.length === 0 && (
+                  <Text style={[styles.label, { color: theme.textSecondary, textAlign: 'center', marginTop: 16 }]}>
+                    No overtime rates added yet
+                  </Text>
+                )}
+              </View>
+
               {/* Pricing Packages Card */}
               <View style={[styles.card, { backgroundColor: theme.card, borderColor: theme.border }]}>
-                <View style={styles.packageHeader}>
+                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
                   <Text style={[styles.sectionTitle, { color: theme.text }]}>Pricing Packages</Text>
                   <TouchableOpacity
-                    style={[styles.addPackageButton, { borderColor: Palette.primary }]}
+                    style={{ backgroundColor: Palette.primary, borderRadius: 8, flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, paddingVertical: 10, gap: 8 }}
                     onPress={addPricingPackage}
                   >
-                    <Text style={{ color: Palette.primary, fontSize: 16, fontWeight: 'bold' }}>+</Text>
+                    <Ionicons name="add" size={20} color="white" />
+                    <Text style={{ color: 'white', fontSize: 14, fontWeight: '600' }}>Add Package</Text>
                   </TouchableOpacity>
                 </View>
 
@@ -1578,7 +2122,7 @@ export default function EditVenueNew() {
                         onChangeText={(val) => updatePackage(pkg.id, 'name', val)}
                       />
                       <TouchableOpacity onPress={() => deletePackage(pkg.id)}>
-                        <Text style={{ fontSize: 18, color: Palette.red }}>🗑️</Text>
+                        <Ionicons name="trash" size={20} color={Palette.red} />
                       </TouchableOpacity>
                     </View>
 
@@ -1619,6 +2163,144 @@ export default function EditVenueNew() {
                       multiline
                       numberOfLines={3}
                     />
+                  </View>
+                ))}
+              </View>
+
+              {/* Seasonal Pricing Card */}
+              <View style={[styles.card, { backgroundColor: theme.card, borderColor: theme.border, marginTop: 16 }]}>
+                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+                  <Text style={[styles.sectionTitle, { color: theme.text }]}>Seasonal Pricing (Optional)</Text>
+                  <TouchableOpacity
+                    style={{ backgroundColor: Palette.primary, borderRadius: 8, flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, paddingVertical: 10, gap: 8 }}
+                    onPress={addSeasonalPrice}
+                  >
+                    <Ionicons name="add" size={20} color="white" />
+                    <Text style={{ color: 'white', fontSize: 14, fontWeight: '600' }}>Add Season</Text>
+                  </TouchableOpacity>
+                </View>
+
+                {seasonalPrices.map((season) => (
+                  <View
+                    key={season.id}
+                    style={[
+                      styles.packageCard,
+                      { backgroundColor: theme.lightBg, borderColor: theme.border },
+                    ]}
+                  >
+                    <View style={styles.packageCardHeader}>
+                      <TextInput
+                        style={[
+                          styles.packageNameInput,
+                          { color: theme.text, borderColor: theme.border },
+                        ]}
+                        placeholder="Season Name"
+                        placeholderTextColor={theme.textSecondary}
+                        value={season.seasonName}
+                        onChangeText={(val) => updateSeasonalPrice(season.id, 'seasonName', val)}
+                      />
+                      <TouchableOpacity onPress={() => deleteSeasonalPrice(season.id)}>
+                        <Ionicons name="trash" size={20} color={Palette.red} />
+                      </TouchableOpacity>
+                    </View>
+
+                    <View style={styles.packageGrid}>
+                      <View style={styles.packageField}>
+                        <Text style={[styles.label, { color: theme.text }]}>Start Date</Text>
+                        <TextInput
+                          style={[
+                            styles.input,
+                            { color: theme.text, borderColor: theme.border },
+                          ]}
+                          placeholder="YYYY-MM-DD"
+                          placeholderTextColor={theme.textSecondary}
+                          value={season.startDate}
+                          onChangeText={(val) => updateSeasonalPrice(season.id, 'startDate', val)}
+                        />
+                      </View>
+                      <View style={styles.packageField}>
+                        <Text style={[styles.label, { color: theme.text }]}>End Date</Text>
+                        <TextInput
+                          style={[
+                            styles.input,
+                            { color: theme.text, borderColor: theme.border },
+                          ]}
+                          placeholder="YYYY-MM-DD"
+                          placeholderTextColor={theme.textSecondary}
+                          value={season.endDate}
+                          onChangeText={(val) => updateSeasonalPrice(season.id, 'endDate', val)}
+                        />
+                      </View>
+                    </View>
+
+                    <View style={[styles.packageGrid, { overflow: 'visible', zIndex: 5 }]}>
+                      <View style={[styles.packageField, { overflow: 'visible', zIndex: 6 }]}>
+                        <Text style={[styles.label, { color: theme.text }]}>Rate Type</Text>
+                        <TouchableOpacity
+                          style={[styles.dropdown, { backgroundColor: theme.card, borderColor: theme.border }]}
+                          onPress={() => setOpenDropdowns({ ...openDropdowns, [`seasonalRateType_${season.id}`]: !openDropdowns[`seasonalRateType_${season.id}`] })}
+                        >
+                          <Text style={[styles.dropdownText, { color: theme.text }]}>{season.rateType}</Text>
+                          <Ionicons name={openDropdowns[`seasonalRateType_${season.id}`] ? "chevron-up" : "chevron-down"} size={20} color={theme.text} />
+                        </TouchableOpacity>
+                        {openDropdowns[`seasonalRateType_${season.id}`] && (
+                          <View style={[styles.dropdownMenu, { backgroundColor: theme.card, borderColor: theme.border, marginTop: 4, zIndex: 100 }]}>
+                            {["Hourly", "Daily", "Package", "All"].map((type) => (
+                              <TouchableOpacity
+                                key={type}
+                                style={styles.dropdownItem}
+                                onPress={() => {
+                                  updateSeasonalPrice(season.id, "rateType", type);
+                                  setOpenDropdowns({ ...openDropdowns, [`seasonalRateType_${season.id}`]: false });
+                                }}
+                              >
+                                <Text style={[styles.dropdownItemText, { color: theme.text }]}>{type}</Text>
+                              </TouchableOpacity>
+                            ))}
+                          </View>
+                        )}
+                      </View>
+                      <View style={[styles.packageField, { overflow: 'visible', zIndex: 6 }]}>
+                        <Text style={[styles.label, { color: theme.text }]}>Modifier Type</Text>
+                        <TouchableOpacity
+                          style={[styles.dropdown, { backgroundColor: theme.card, borderColor: theme.border }]}
+                          onPress={() => setOpenDropdowns({ ...openDropdowns, [`modifierType_${season.id}`]: !openDropdowns[`modifierType_${season.id}`] })}
+                        >
+                          <Text style={[styles.dropdownText, { color: theme.text }]}>{season.modifierType}</Text>
+                          <Ionicons name={openDropdowns[`modifierType_${season.id}`] ? "chevron-up" : "chevron-down"} size={20} color={theme.text} />
+                        </TouchableOpacity>
+                        {openDropdowns[`modifierType_${season.id}`] && (
+                          <View style={[styles.dropdownMenu, { backgroundColor: theme.card, borderColor: theme.border, marginTop: 4, zIndex: 100 }]}>
+                            {["Fixed", "Percentage"].map((type) => (
+                              <TouchableOpacity
+                                key={type}
+                                style={styles.dropdownItem}
+                                onPress={() => {
+                                  updateSeasonalPrice(season.id, "modifierType", type);
+                                  setOpenDropdowns({ ...openDropdowns, [`modifierType_${season.id}`]: false });
+                                }}
+                              >
+                                <Text style={[styles.dropdownItemText, { color: theme.text }]}>{type}</Text>
+                              </TouchableOpacity>
+                            ))}
+                          </View>
+                        )}
+                      </View>
+                      <View style={styles.packageField}>
+                        <Text style={[styles.label, { color: theme.text }]}>Modifier Value</Text>
+                        <TextInput
+                          style={[
+                            styles.input,
+                            { color: theme.text, borderColor: theme.border },
+                          ]}
+                          placeholder="0.00"
+                          placeholderTextColor={theme.textSecondary}
+                          value={season.modifierValue}
+                          onChangeText={(val) => updateSeasonalPrice(season.id, 'modifierValue', val)}
+                          keyboardType="decimal-pad"
+                        />
+                      </View>
+                    </View>
                   </View>
                 ))}
               </View>
@@ -1913,6 +2595,54 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     marginBottom: 12,
   },
+  formGroup: {
+    marginBottom: 12,
+  },
+  notesInput: {
+    borderWidth: 1,
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    fontSize: 14,
+    minHeight: 60,
+    textAlignVertical: 'top',
+  },
+  addButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    borderRadius: 8,
+  },
+  addButtonText: {
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  specificationsContainer: {
+    marginTop: 16,
+    gap: 8,
+  },
+  specCard: {
+    flexDirection: 'row',
+    padding: 12,
+    borderRadius: 8,
+    borderWidth: 1,
+    alignItems: 'center',
+  },
+  specName: {
+    fontSize: 14,
+    fontWeight: '600',
+    marginBottom: 4,
+  },
+  specValue: {
+    fontSize: 13,
+    marginBottom: 4,
+  },
+  specNotes: {
+    fontSize: 12,
+    fontStyle: 'italic',
+  },
   specificationGrid: {
     gap: 12,
   },
@@ -2011,13 +2741,6 @@ const styles = StyleSheet.create({
     flex: 1,
     minWidth: '32%',
   },
-  addButton: {
-    borderWidth: 1,
-    borderRadius: 8,
-    paddingVertical: 10,
-    alignItems: 'center',
-    marginTop: 8,
-  },
   thumbnailGrid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
@@ -2031,7 +2754,7 @@ const styles = StyleSheet.create({
   },
   thumbnail: {
     width: '100%',
-    height: '100%',
+    height: 200,
     borderRadius: 8,
   },
   deleteOverlay: {
@@ -2214,5 +2937,64 @@ const styles = StyleSheet.create({
   modalConfirmButtonText: {
     fontSize: 14,
     fontWeight: '600',
+  },
+  imageCard: {
+    borderRadius: 12,
+    overflow: 'hidden',
+    borderWidth: 2,
+    marginBottom: 12,
+  },
+  imagePreview: {
+    width: '100%',
+    height: 200,
+    backgroundColor: '#f0f0f0',
+  },
+  thumbnailPreviewContainer: {
+    width: '100%',
+    height: 180,
+    borderRadius: 12,
+    overflow: 'hidden',
+    marginBottom: 16,
+    position: 'relative',
+    backgroundColor: '#f0f0f0',
+  },
+  thumbnailPreview: {
+    width: '100%',
+    height: '100%',
+    resizeMode: 'cover',
+  },
+  thumbnailPreviewBadge: {
+    position: 'absolute',
+    bottom: 12,
+    right: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(76, 175, 80, 0.9)',
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 20,
+  },
+  imageActions: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    gap: 8,
+  },
+  thumbnailBadge: {
+    flex: 1,
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    borderRadius: 6,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  badgeText: {
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  removeImageButton: {
+    padding: 8,
   },
 });

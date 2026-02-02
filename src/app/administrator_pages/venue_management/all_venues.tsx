@@ -2,16 +2,16 @@ import { Ionicons } from "@expo/vector-icons";
 import { useFocusEffect, useRouter } from "expo-router";
 import { useCallback, useEffect, useState } from "react";
 import {
-    ActivityIndicator,
-    Alert,
-    Image,
-    ScrollView,
-    StyleSheet,
-    Switch,
-    Text,
-    TextInput,
-    TouchableOpacity,
-    View
+  ActivityIndicator,
+  Alert,
+  Image,
+  ScrollView,
+  StyleSheet,
+  Switch,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View
 } from "react-native";
 import { Palette } from "../../../../assets/colors/palette";
 import AdminHeader from "../../../components/admin-header";
@@ -62,6 +62,10 @@ export default function AllVenues() {
         setError(error);
         Alert.alert("Error", error);
       } else {
+        console.log("📋 Venues data received:", data);
+        if (data && data.length > 0) {
+          console.log("🖼️ First venue images:", (data[0] as any).venue_images);
+        }
         setVenues(data || []);
       }
     } catch (err: any) {
@@ -320,8 +324,8 @@ export default function AllVenues() {
                   {/* Thumbnail */}
                   <View style={{ flex: 0.8 }}>
                     <View style={[styles.thumbnail, { backgroundColor: Palette.primary, justifyContent: "center", alignItems: "center" }]}>
-                      {venue.images && venue.images.length > 0 ? (
-                        <Image source={{ uri: venue.images[0]?.image_path }} style={{ width: "100%", height: "100%", borderRadius: 4 }} />
+                      {venue.venue_images && venue.venue_images.length > 0 ? (
+                        <Image source={{ uri: (venue.venue_images.find((img: any) => img.is_thumbnail) || venue.venue_images[0])?.image_path }} style={{ width: "100%", height: "100%", borderRadius: 4 }} onError={() => console.log("Failed to load image:", (venue.venue_images.find((img: any) => img.is_thumbnail) || venue.venue_images[0])?.image_path)} />
                       ) : (
                         <>
                           <Ionicons name="image" size={20} color={Palette.light.text} style={{ marginBottom: 4 }} />
