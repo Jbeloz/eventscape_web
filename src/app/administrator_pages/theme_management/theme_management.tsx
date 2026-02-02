@@ -16,10 +16,13 @@ import {
 import { Palette } from "../../../../assets/colors/palette";
 import AdminHeader from "../../../components/admin-header";
 import AdminSidebar from "../../../components/admin-sidebar";
-import StyledDropdown from "../../../components/styled-dropdown";
-import ThumbnailUpload from "../../../components/thumbnail-upload";
+import DeleteConfirmationModal from "../../../components/delete_confirmation_modal";
+import MultiSelectDropdown from "../../../components/multi-select-dropdown";
+import ThemeImageGallery from "../../../components/theme-image-gallery";
+import ValidationError from "../../../components/validation-error";
 import { useTheme } from "../../../context/theme-context";
 import { supabase } from "../../../services/supabase";
+import { validateRequired, VALIDATION_MESSAGES, ValidationError as ValidationErrorType } from "../../../utils/validation";
 
 export default function ThemeManagement() {
   const { isDarkMode, toggleTheme } = useTheme();
@@ -39,10 +42,11 @@ export default function ThemeManagement() {
   const [description, setDescription] = useState("");
   const [addColors, setAddColors] = useState<string[]>(["#6C9BCF"]); // [mainColor, secondaryColor?, ...accentColors]
   const [newAddColor, setNewAddColor] = useState("");
-  const [thumbnailUri, setThumbnailUri] = useState("");
-  const [selectedDecoration, setSelectedDecoration] = useState<string | number>("");
-  const [selectedLighting, setSelectedLighting] = useState<string | number>("");
-  const [selectedCategory, setSelectedCategory] = useState<string | number>("");
+  const [themeImages, setThemeImages] = useState<string[]>([]);
+  const [thumbnailIndex, setThumbnailIndex] = useState<number>(0);
+  const [selectedDecorations, setSelectedDecorations] = useState<(string | number)[]>([]);
+  const [selectedLightings, setSelectedLightings] = useState<(string | number)[]>([]);
+  const [selectedCategories, setSelectedCategories] = useState<(string | number)[]>([]);
   const [decorationDropdownOpen, setDecorationDropdownOpen] = useState(false);
   const [lightingDropdownOpen, setLightingDropdownOpen] = useState(false);
   const [categoryDropdownOpen, setCategoryDropdownOpen] = useState(false);
@@ -51,13 +55,19 @@ export default function ThemeManagement() {
   const [editThemeName, setEditThemeName] = useState("");
   const [editDescription, setEditDescription] = useState("");
   const [editColors, setEditColors] = useState<string[]>([]);
-  const [editThumbnailUri, setEditThumbnailUri] = useState("");
-  const [editSelectedDecoration, setEditSelectedDecoration] = useState<string | number>("");
-  const [editSelectedLighting, setEditSelectedLighting] = useState<string | number>("");
-  const [editSelectedCategory, setEditSelectedCategory] = useState<string | number>("");
+  const [editThemeImages, setEditThemeImages] = useState<string[]>([]);
+  const [editThumbnailIndex, setEditThumbnailIndex] = useState<number>(0);
+  const [editSelectedDecorations, setEditSelectedDecorations] = useState<(string | number)[]>([]);
+  const [editSelectedLightings, setEditSelectedLightings] = useState<(string | number)[]>([]);
+  const [editSelectedCategories, setEditSelectedCategories] = useState<(string | number)[]>([]);
   const [editDecorationDropdownOpen, setEditDecorationDropdownOpen] = useState(false);
   const [editLightingDropdownOpen, setEditLightingDropdownOpen] = useState(false);
   const [editCategoryDropdownOpen, setEditCategoryDropdownOpen] = useState(false);
+
+  // Delete Modal State
+  const [showDeleteModal, setShowDeleteModal] = useState(false);
+  const [deleteThemeId, setDeleteThemeId] = useState<number | null>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
 
   const [themes, setThemes] = useState<any[]>([]);
   const [decorationStyles, setDecorationStyles] = useState<any[]>([]);
@@ -65,6 +75,18 @@ export default function ThemeManagement() {
   const [eventCategories, setEventCategories] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [addError, setAddError] = useState<ValidationErrorType>({ field: "", message: "", isValid: true });
+  const [addDescriptionError, setAddDescriptionError] = useState<ValidationErrorType>({ field: "", message: "", isValid: true });
+  const [addDecorationsError, setAddDecorationsError] = useState<ValidationErrorType>({ field: "", message: "", isValid: true });
+  const [addLightingsError, setAddLightingsError] = useState<ValidationErrorType>({ field: "", message: "", isValid: true });
+  const [addCategoriesError, setAddCategoriesError] = useState<ValidationErrorType>({ field: "", message: "", isValid: true });
+  const [addImagesError, setAddImagesError] = useState<ValidationErrorType>({ field: "", message: "", isValid: true });
+  const [editError, setEditError] = useState<ValidationErrorType>({ field: "", message: "", isValid: true });
+  const [editDescriptionError, setEditDescriptionError] = useState<ValidationErrorType>({ field: "", message: "", isValid: true });
+  const [editDecorationsError, setEditDecorationsError] = useState<ValidationErrorType>({ field: "", message: "", isValid: true });
+  const [editLightingsError, setEditLightingsError] = useState<ValidationErrorType>({ field: "", message: "", isValid: true });
+  const [editCategoriesError, setEditCategoriesError] = useState<ValidationErrorType>({ field: "", message: "", isValid: true });
+  const [editImagesError, setEditImagesError] = useState<ValidationErrorType>({ field: "", message: "", isValid: true });
 
   const theme = isDarkMode ? Palette.dark : Palette.light;
 
@@ -99,14 +121,14 @@ export default function ThemeManagement() {
   const fetchEventCategories = async () => {
     try {
       const { data, error: err } = await supabase
-        .from("event_categories")
+        .from("theme_categories")
         .select("category_id, category_name")
         .order("category_name", { ascending: true });
 
       if (err) throw err;
       setEventCategories(data || []);
     } catch (err: any) {
-      console.error("Error fetching event categories:", err.message);
+      console.error("Error fetching theme categories:", err.message);
     }
   };
 
@@ -118,7 +140,10 @@ export default function ThemeManagement() {
         .select(
           `*,
           event_theme_images(image_path, is_thumbnail),
-          event_theme_accent_colors(color_value)`
+          event_theme_accent_colors(color_value),
+          event_theme_categories(category_id),
+          event_theme_decorations(decoration_style_id),
+          event_theme_lighting(lighting_style_id)`
         )
         .order("created_at", { ascending: false });
 
@@ -137,11 +162,15 @@ export default function ThemeManagement() {
         }
         colors.push(...accentColorsList);
 
+        // Extract category, decoration, and lighting IDs from junction tables
+        const categories = t.event_theme_categories?.map((etc: any) => etc.category_id) || [];
+        const decorations = t.event_theme_decorations?.map((etd: any) => etd.decoration_style_id) || [];
+        const lightings = t.event_theme_lighting?.map((etl: any) => etl.lighting_style_id) || [];
+
         return {
           id: t.event_theme_id,
           name: t.theme_name,
           category: "General",
-          type: "Custom",
           status: t.is_active ? "Active" : "Inactive",
           createdDate: t.created_at ? t.created_at.split("T")[0] : "",
           thumbnail: thumbnail,
@@ -151,6 +180,9 @@ export default function ThemeManagement() {
           secondaryColor: t.secondary_color || "#000000",
           accentColors: accentColorsList,
           description: t.theme_description,
+          categories: categories,
+          decorations: decorations,
+          lightings: lightings,
         };
       }) || [];
 
@@ -185,6 +217,58 @@ export default function ThemeManagement() {
     return category?.category_name || "";
   };
 
+  // Helper function to convert image URI to base64 data URL
+  // Helper function to upload image to Cloudinary
+  const uploadImageToCloudinary = async (imageUri: string): Promise<string> => {
+    try {
+      // If it's already a URL (from Cloudinary), return as-is
+      if (imageUri.startsWith('http') || imageUri.includes('cloudinary')) {
+        return imageUri;
+      }
+
+      // Fetch the image as a blob
+      let imageBlob: Blob;
+      
+      if (imageUri.startsWith('blob:')) {
+        // Web blob URI
+        const response = await fetch(imageUri);
+        imageBlob = await response.blob();
+      } else if (imageUri.startsWith('data:')) {
+        // Data URL - convert to blob
+        const response = await fetch(imageUri);
+        imageBlob = await response.blob();
+      } else {
+        // File URI from native
+        const response = await fetch(imageUri);
+        imageBlob = await response.blob();
+      }
+
+      // Create FormData for Cloudinary upload
+      const formData = new FormData();
+      formData.append('file', imageBlob);
+      formData.append('upload_preset', process.env.EXPO_PUBLIC_CLOUDINARY_PRESET || '');
+      // Optional: add a folder for organization
+      formData.append('folder', 'eventscape/themes');
+
+      // Upload to Cloudinary
+      const cloudinaryUrl = `https://api.cloudinary.com/v1_1/${process.env.EXPO_PUBLIC_CLOUDINARY_NAME}/image/upload`;
+      const response = await fetch(cloudinaryUrl, {
+        method: 'POST',
+        body: formData,
+      });
+
+      if (!response.ok) {
+        throw new Error(`Cloudinary upload failed: ${response.statusText}`);
+      }
+
+      const data = await response.json();
+      return data.secure_url || data.url;
+    } catch (error) {
+      console.error("Error uploading image to Cloudinary:", error);
+      throw error;
+    }
+  };
+
   useEffect(() => {
     fetchDecorationStyles();
     fetchLightingStyles();
@@ -193,8 +277,49 @@ export default function ThemeManagement() {
   }, []);
 
   const handleAddTheme = async () => {
-    if (themeName.trim()) {
-      try {
+    // Validate theme name
+    const themeNameValidation: ValidationErrorType = validateRequired(themeName) 
+      ? { field: "themeName", message: "", isValid: true }
+      : { field: "themeName", message: VALIDATION_MESSAGES.required("Theme name"), isValid: false };
+    setAddError(themeNameValidation);
+    
+    // Validate description
+    const descriptionValidation: ValidationErrorType = validateRequired(description)
+      ? { field: "description", message: "", isValid: true }
+      : { field: "description", message: VALIDATION_MESSAGES.required("Description"), isValid: false };
+    setAddDescriptionError(descriptionValidation);
+
+    // Validate decorations
+    const decorationsValidation: ValidationErrorType = selectedDecorations.length > 0
+      ? { field: "decorations", message: "", isValid: true }
+      : { field: "decorations", message: "Please select at least one decoration style", isValid: false };
+    setAddDecorationsError(decorationsValidation);
+
+    // Validate lightings
+    const lightingsValidation: ValidationErrorType = selectedLightings.length > 0
+      ? { field: "lightings", message: "", isValid: true }
+      : { field: "lightings", message: "Please select at least one lighting style", isValid: false };
+    setAddLightingsError(lightingsValidation);
+
+    // Validate categories
+    const categoriesValidation: ValidationErrorType = selectedCategories.length > 0
+      ? { field: "categories", message: "", isValid: true }
+      : { field: "categories", message: "Please select at least one category", isValid: false };
+    setAddCategoriesError(categoriesValidation);
+
+    // Validate images
+    const imagesValidation: ValidationErrorType = themeImages.length > 0
+      ? { field: "images", message: "", isValid: true }
+      : { field: "images", message: "Please add at least one image", isValid: false };
+    setAddImagesError(imagesValidation);
+
+    // Check if any validation failed
+    if (!themeNameValidation.isValid || !descriptionValidation.isValid || !decorationsValidation.isValid || 
+        !lightingsValidation.isValid || !categoriesValidation.isValid || !imagesValidation.isValid) {
+      return;
+    }
+
+    try {
         const mainColor = addColors[0];
         const secondaryColor = addColors.length > 1 ? addColors[1] : null;
         const accentColors = addColors.slice(2);
@@ -216,17 +341,27 @@ export default function ThemeManagement() {
 
         const newTheme = data[0];
 
-        // Insert thumbnail if provided
-        if (thumbnailUri && newTheme?.event_theme_id) {
+        // Insert images with thumbnail designation
+        if (themeImages.length > 0 && newTheme?.event_theme_id) {
+          const imagesData = await Promise.all(
+            themeImages.map(async (imagePath, index) => {
+              let finalImagePath = imagePath;
+              // Only upload to Cloudinary if it's a new local file (blob or file://)
+              if (imagePath.startsWith("blob:") || imagePath.startsWith("file://")) {
+                finalImagePath = await uploadImageToCloudinary(imagePath);
+              }
+              // Otherwise it's already a URL from Cloudinary
+              return {
+                event_theme_id: newTheme.event_theme_id,
+                image_path: finalImagePath,
+                is_thumbnail: index === thumbnailIndex,
+              };
+            })
+          );
+
           const { error: imageErr } = await supabase
             .from("event_theme_images")
-            .insert([
-              {
-                event_theme_id: newTheme.event_theme_id,
-                image_path: thumbnailUri,
-                is_thumbnail: true,
-              },
-            ]);
+            .insert(imagesData);
 
           if (imageErr) throw imageErr;
         }
@@ -245,46 +380,50 @@ export default function ThemeManagement() {
           if (accentErr) throw accentErr;
         }
 
-        // Insert decoration style if selected
-        if (selectedDecoration && newTheme?.event_theme_id) {
+        // Insert decoration styles if selected
+        if (selectedDecorations.length > 0 && newTheme?.event_theme_id) {
+          const decorationsData = selectedDecorations.map((decorationId) => ({
+            event_theme_id: newTheme.event_theme_id,
+            decoration_style_id: decorationId,
+          }));
           const { error: decorErr } = await supabase
             .from("event_theme_decorations")
-            .insert([
-              {
-                event_theme_id: newTheme.event_theme_id,
-                decoration_style_id: selectedDecoration,
-              },
-            ]);
+            .insert(decorationsData);
 
-          if (decorErr) throw decorErr;
+          if (decorErr) {
+            console.warn("Warning: Could not link decoration styles to theme:", decorErr);
+          }
         }
 
-        // Insert lighting style if selected
-        if (selectedLighting && newTheme?.event_theme_id) {
+        // Insert lighting styles if selected
+        if (selectedLightings.length > 0 && newTheme?.event_theme_id) {
+          const lightingsData = selectedLightings.map((lightingId) => ({
+            event_theme_id: newTheme.event_theme_id,
+            lighting_style_id: lightingId,
+          }));
           const { error: lightErr } = await supabase
             .from("event_theme_lighting")
-            .insert([
-              {
-                event_theme_id: newTheme.event_theme_id,
-                lighting_style_id: selectedLighting,
-              },
-            ]);
+            .insert(lightingsData);
 
-          if (lightErr) throw lightErr;
+          if (lightErr) {
+            console.warn("Warning: Could not link lighting styles to theme:", lightErr);
+          }
         }
 
-        // Insert category if selected
-        if (selectedCategory && newTheme?.event_theme_id) {
+        // Insert categories if selected
+        if (selectedCategories.length > 0 && newTheme?.event_theme_id) {
+          const categoriesData = selectedCategories.map((categoryId) => ({
+            event_theme_id: newTheme.event_theme_id,
+            category_id: categoryId,
+          }));
           const { error: catErr } = await supabase
             .from("event_theme_categories")
-            .insert([
-              {
-                event_theme_id: newTheme.event_theme_id,
-                category_id: selectedCategory,
-              },
-            ]);
+            .insert(categoriesData);
 
-          if (catErr) throw catErr;
+          // Don't throw error for category insertion - it's optional
+          if (catErr) {
+            console.warn("Warning: Could not link categories to theme:", catErr);
+          }
         }
 
         Alert.alert("Success", "Theme added successfully");
@@ -292,11 +431,20 @@ export default function ThemeManagement() {
         setShowAddModal(false);
         await fetchThemes();
       } catch (err: any) {
-        Alert.alert("Error", "Failed to add theme: " + err.message);
+        console.error("Theme add error:", err);
+        
+        // Handle duplicate theme name error
+        if (err.code === '23505' && err.details?.includes('theme_name')) {
+          setAddError({
+            field: "name",
+            message: "This theme name already exists. Please use a different name.",
+            isValid: false
+          });
+          Alert.alert("Duplicate Theme Name", "A theme with this name already exists. Please use a different name.");
+        } else {
+          Alert.alert("Error", "Failed to add theme: " + (err.message || JSON.stringify(err)));
+        }
       }
-    } else {
-      Alert.alert("Error", "Please fill in theme name");
-    }
   };
 
   const resetAddModal = () => {
@@ -304,13 +452,20 @@ export default function ThemeManagement() {
     setDescription("");
     setAddColors(["#6C9BCF"]);
     setNewAddColor("");
-    setThumbnailUri("");
-    setSelectedDecoration("");
-    setSelectedLighting("");
-    setSelectedCategory("");
+    setThemeImages([]);
+    setThumbnailIndex(0);
+    setSelectedDecorations([]);
+    setSelectedLightings([]);
+    setSelectedCategories([]);
     setDecorationDropdownOpen(false);
     setLightingDropdownOpen(false);
     setCategoryDropdownOpen(false);
+    setAddError({ field: "", message: "", isValid: true });
+    setAddDescriptionError({ field: "", message: "", isValid: true });
+    setAddDecorationsError({ field: "", message: "", isValid: true });
+    setAddLightingsError({ field: "", message: "", isValid: true });
+    setAddCategoriesError({ field: "", message: "", isValid: true });
+    setAddImagesError({ field: "", message: "", isValid: true });
   };
 
   const handleAddAccentColor = () => {
@@ -351,14 +506,63 @@ export default function ThemeManagement() {
     setEditThemeName(themeItem.name);
     setEditDescription(themeItem.description);
     setEditColors(themeItem.colors || ["#000000"]);
-    setEditThumbnailUri(themeItem.thumbnail || "");
-    setEditSelectedDecoration("");
-    setEditSelectedLighting("");
-    setEditSelectedCategory("");
+    setEditThemeImages(themeItem.images?.map((img: any) => img.image_path) || []);
+    const thumbnailImg = themeItem.images?.find((img: any) => img.is_thumbnail);
+    const thumbnailIdx = themeItem.images?.findIndex((img: any) => img.is_thumbnail) || 0;
+    setEditThumbnailIndex(thumbnailIdx >= 0 ? thumbnailIdx : 0);
+    
+    // Fetch existing decorations, lightings, and categories
+    fetchEditThemeAssociations(themeItem.id);
+    
     setEditDecorationDropdownOpen(false);
     setEditLightingDropdownOpen(false);
     setEditCategoryDropdownOpen(false);
     setShowEditModal(true);
+  };
+
+  const fetchEditThemeAssociations = async (themeId: number) => {
+    try {
+      // Fetch decorations
+      const { data: decorData } = await supabase
+        .from("event_theme_decorations")
+        .select("decoration_style_id")
+        .eq("event_theme_id", themeId);
+
+      if (decorData) {
+        setEditSelectedDecorations(decorData.map((d) => d.decoration_style_id));
+      } else {
+        setEditSelectedDecorations([]);
+      }
+
+      // Fetch lightings
+      const { data: lightData } = await supabase
+        .from("event_theme_lighting")
+        .select("lighting_style_id")
+        .eq("event_theme_id", themeId);
+
+      if (lightData) {
+        setEditSelectedLightings(lightData.map((l) => l.lighting_style_id));
+      } else {
+        setEditSelectedLightings([]);
+      }
+
+      // Fetch categories
+      const { data: catData } = await supabase
+        .from("event_theme_categories")
+        .select("category_id")
+        .eq("event_theme_id", themeId);
+
+      if (catData) {
+        setEditSelectedCategories(catData.map((c) => c.category_id));
+      } else {
+        setEditSelectedCategories([]);
+      }
+    } catch (err) {
+      console.error("Error fetching theme associations:", err);
+      setEditSelectedDecorations([]);
+      setEditSelectedLightings([]);
+      setEditSelectedCategories([]);
+    }
   };
 
   const handleViewTheme = (themeItem: any) => {
@@ -378,7 +582,49 @@ export default function ThemeManagement() {
   };
 
   const handleSaveEditTheme = async () => {
-    if (editThemeName.trim() && editingTheme) {
+    // Validate theme name
+    const themeNameValidation: ValidationErrorType = validateRequired(editThemeName)
+      ? { field: "themeName", message: "", isValid: true }
+      : { field: "themeName", message: VALIDATION_MESSAGES.required("Theme name"), isValid: false };
+    setEditError(themeNameValidation);
+
+    // Validate description
+    const descriptionValidation: ValidationErrorType = validateRequired(editDescription)
+      ? { field: "description", message: "", isValid: true }
+      : { field: "description", message: VALIDATION_MESSAGES.required("Description"), isValid: false };
+    setEditDescriptionError(descriptionValidation);
+
+    // Validate decorations
+    const decorationsValidation: ValidationErrorType = editSelectedDecorations.length > 0
+      ? { field: "decorations", message: "", isValid: true }
+      : { field: "decorations", message: "Please select at least one decoration style", isValid: false };
+    setEditDecorationsError(decorationsValidation);
+
+    // Validate lightings
+    const lightingsValidation: ValidationErrorType = editSelectedLightings.length > 0
+      ? { field: "lightings", message: "", isValid: true }
+      : { field: "lightings", message: "Please select at least one lighting style", isValid: false };
+    setEditLightingsError(lightingsValidation);
+
+    // Validate categories
+    const categoriesValidation: ValidationErrorType = editSelectedCategories.length > 0
+      ? { field: "categories", message: "", isValid: true }
+      : { field: "categories", message: "Please select at least one category", isValid: false };
+    setEditCategoriesError(categoriesValidation);
+
+    // Validate images
+    const imagesValidation: ValidationErrorType = editThemeImages.length > 0
+      ? { field: "images", message: "", isValid: true }
+      : { field: "images", message: "Please add at least one image", isValid: false };
+    setEditImagesError(imagesValidation);
+
+    // Check if any validation failed
+    if (!themeNameValidation.isValid || !descriptionValidation.isValid || !decorationsValidation.isValid || 
+        !lightingsValidation.isValid || !categoriesValidation.isValid || !imagesValidation.isValid) {
+      return;
+    }
+
+    if (editingTheme) {
       try {
         const mainColor = editColors[0];
         const secondaryColor = editColors.length > 1 ? editColors[1] : null;
@@ -397,8 +643,8 @@ export default function ThemeManagement() {
 
         if (err) throw err;
 
-        // Update thumbnail if changed
-        if (editThumbnailUri && editThumbnailUri !== editingTheme.thumbnail) {
+        // Update images if changed
+        if (editThemeImages.length > 0) {
           // Delete old images first
           const { error: deleteImgErr } = await supabase
             .from("event_theme_images")
@@ -407,16 +653,26 @@ export default function ThemeManagement() {
 
           if (deleteImgErr) throw deleteImgErr;
 
-          // Insert new thumbnail
+          // Insert new images with thumbnail designation
+          const imagesData = await Promise.all(
+            editThemeImages.map(async (imagePath, index) => {
+              let finalImagePath = imagePath;
+              // Only upload to Cloudinary if it's a new local file (blob or file://)
+              if (imagePath.startsWith("blob:") || imagePath.startsWith("file://")) {
+                finalImagePath = await uploadImageToCloudinary(imagePath);
+              }
+              // Otherwise it's already a URL from Cloudinary
+              return {
+                event_theme_id: editingTheme.id,
+                image_path: finalImagePath,
+                is_thumbnail: index === editThumbnailIndex,
+              };
+            })
+          );
+
           const { error: imageErr } = await supabase
             .from("event_theme_images")
-            .insert([
-              {
-                event_theme_id: editingTheme.id,
-                image_path: editThumbnailUri,
-                is_thumbnail: true,
-              },
-            ]);
+            .insert(imagesData);
 
           if (imageErr) throw imageErr;
         }
@@ -449,20 +705,23 @@ export default function ThemeManagement() {
           .delete()
           .eq("event_theme_id", editingTheme.id);
 
-        if (deleteDecoErr) throw deleteDecoErr;
+        if (deleteDecoErr) {
+          console.warn("Warning: Could not delete existing decorations:", deleteDecoErr);
+        }
 
-        // Insert updated decoration style if selected
-        if (editSelectedDecoration) {
+        // Insert updated decoration styles if selected
+        if (editSelectedDecorations.length > 0) {
+          const decorationsData = editSelectedDecorations.map((decorationId) => ({
+            event_theme_id: editingTheme.id,
+            decoration_style_id: decorationId,
+          }));
           const { error: decorErr } = await supabase
             .from("event_theme_decorations")
-            .insert([
-              {
-                event_theme_id: editingTheme.id,
-                decoration_style_id: editSelectedDecoration,
-              },
-            ]);
+            .insert(decorationsData);
 
-          if (decorErr) throw decorErr;
+          if (decorErr) {
+            console.warn("Warning: Could not link decoration styles to theme:", decorErr);
+          }
         }
 
         // Delete existing lighting and update
@@ -471,20 +730,23 @@ export default function ThemeManagement() {
           .delete()
           .eq("event_theme_id", editingTheme.id);
 
-        if (deleteLightErr) throw deleteLightErr;
+        if (deleteLightErr) {
+          console.warn("Warning: Could not delete existing lightings:", deleteLightErr);
+        }
 
-        // Insert updated lighting style if selected
-        if (editSelectedLighting) {
+        // Insert updated lighting styles if selected
+        if (editSelectedLightings.length > 0) {
+          const lightingsData = editSelectedLightings.map((lightingId) => ({
+            event_theme_id: editingTheme.id,
+            lighting_style_id: lightingId,
+          }));
           const { error: lightErr } = await supabase
             .from("event_theme_lighting")
-            .insert([
-              {
-                event_theme_id: editingTheme.id,
-                lighting_style_id: editSelectedLighting,
-              },
-            ]);
+            .insert(lightingsData);
 
-          if (lightErr) throw lightErr;
+          if (lightErr) {
+            console.warn("Warning: Could not link lighting styles to theme:", lightErr);
+          }
         }
 
         // Delete existing categories and update
@@ -493,20 +755,25 @@ export default function ThemeManagement() {
           .delete()
           .eq("event_theme_id", editingTheme.id);
 
-        if (deleteCatErr) throw deleteCatErr;
+        // Don't throw error if delete fails
+        if (deleteCatErr) {
+          console.warn("Warning: Could not delete existing categories:", deleteCatErr);
+        }
 
-        // Insert updated category if selected
-        if (editSelectedCategory) {
+        // Insert updated categories if selected
+        if (editSelectedCategories.length > 0) {
+          const categoriesData = editSelectedCategories.map((categoryId) => ({
+            event_theme_id: editingTheme.id,
+            category_id: categoryId,
+          }));
           const { error: catErr } = await supabase
             .from("event_theme_categories")
-            .insert([
-              {
-                event_theme_id: editingTheme.id,
-                category_id: editSelectedCategory,
-              },
-            ]);
+            .insert(categoriesData);
 
-          if (catErr) throw catErr;
+          // Don't throw error for category insertion - it's optional
+          if (catErr) {
+            console.warn("Warning: Could not link categories to theme:", catErr);
+          }
         }
 
         Alert.alert("Success", "Theme updated successfully");
@@ -514,7 +781,19 @@ export default function ThemeManagement() {
         setEditingTheme(null);
         await fetchThemes();
       } catch (err: any) {
-        Alert.alert("Error", "Failed to update theme: " + err.message);
+        console.error("Theme update error:", err);
+        
+        // Handle duplicate theme name error
+        if (err.code === '23505' && err.details?.includes('theme_name')) {
+          setEditError({
+            field: "name",
+            message: "This theme name already exists. Please use a different name.",
+            isValid: false
+          });
+          Alert.alert("Duplicate Theme Name", "A theme with this name already exists. Please use a different name.");
+        } else {
+          Alert.alert("Error", "Failed to update theme: " + (err.message || JSON.stringify(err)));
+        }
       }
     }
   };
@@ -538,32 +817,49 @@ export default function ThemeManagement() {
   };
 
   const handleDeleteTheme = (themeId: number) => {
-    Alert.alert(
-      "Delete Theme",
-      "Are you sure you want to delete this theme?",
-      [
-        { text: "Cancel", onPress: () => {}, style: "cancel" },
-        {
-          text: "Delete",
-          onPress: async () => {
-            try {
-              const { error: err } = await supabase
-                .from("event_themes")
-                .delete()
-                .eq("event_theme_id", themeId);
+    setDeleteThemeId(themeId);
+    setShowDeleteModal(true);
+  };
 
-              if (err) throw err;
+  const handleConfirmDelete = async () => {
+    if (!deleteThemeId) return;
 
-              Alert.alert("Success", "Theme deleted successfully");
-              await fetchThemes();
-            } catch (err: any) {
-              Alert.alert("Error", "Failed to delete theme: " + err.message);
-            }
-          },
-          style: "destructive",
-        },
-      ]
-    );
+    setIsDeleting(true);
+    try {
+      // Delete the theme from database
+      // ON DELETE CASCADE will automatically delete related records from:
+      // - event_theme_images
+      // - event_theme_accent_colors
+      // - event_theme_categories
+      // - event_theme_decorations
+      // - event_theme_lighting
+      // Note: Cloudinary images are managed separately
+      const { error: dbError } = await supabase
+        .from("event_themes")
+        .delete()
+        .eq("event_theme_id", deleteThemeId);
+
+      if (dbError) throw dbError;
+
+      Alert.alert("Success", "Theme deleted successfully");
+      setShowDeleteModal(false);
+      setDeleteThemeId(null);
+      await fetchThemes();
+    } catch (err: any) {
+      console.error("Error deleting theme:", err);
+      Alert.alert(
+        "Error",
+        "Failed to delete theme: " + (err.message || "Unknown error occurred")
+      );
+      setIsDeleting(false);
+    }
+  };
+
+  const handleCloseDeleteModal = () => {
+    if (!isDeleting) {
+      setShowDeleteModal(false);
+      setDeleteThemeId(null);
+    }
   };
 
   const filteredThemes = themes.filter((t) => {
@@ -629,10 +925,9 @@ export default function ThemeManagement() {
               <Text style={[styles.columnHeader, { color: theme.text, flex: 0.6 }]}>Thumbnail</Text>
               <Text style={[styles.columnHeader, { color: theme.text, flex: 1.2 }]}>Theme Name</Text>
               <Text style={[styles.columnHeader, { color: theme.text, flex: 1 }]}>Event Category</Text>
-              <Text style={[styles.columnHeader, { color: theme.text, flex: 0.9 }]}>Theme Type</Text>
               <Text style={[styles.columnHeader, { color: theme.text, flex: 0.7 }]}>Status</Text>
               <Text style={[styles.columnHeader, { color: theme.text, flex: 0.9 }]}>Created Date</Text>
-              <Text style={[styles.columnHeader, { color: theme.text, flex: 0.9 }]}>Actions</Text>
+              <Text style={[styles.columnHeader, { color: theme.text, flex: 0.8 }]}>Actions</Text>
             </View>
 
             {/* Table Rows */}
@@ -659,11 +954,6 @@ export default function ThemeManagement() {
                     {themeItem.category}
                   </Text>
 
-                  {/* Theme Type */}
-                  <Text style={[styles.cellText, { color: theme.textSecondary, flex: 0.9 }]}>
-                    {themeItem.type}
-                  </Text>
-
                   {/* Status */}
                   <View style={{ flex: 0.7, justifyContent: "center" }}>
                     <View style={[styles.statusBadge, { backgroundColor: themeItem.status === "Active" ? "#28a74520" : theme.lightBg }]}>
@@ -684,7 +974,7 @@ export default function ThemeManagement() {
                   </Text>
 
                   {/* Actions */}
-                  <View style={[styles.actionsColumn, { flex: 0.9 }]}>
+                  <View style={[styles.actionsColumn, { flex: 0.8, gap: 12 }]}>
                     <TouchableOpacity style={styles.actionIcon} onPress={() => handleViewTheme(themeItem)}>
                       <Ionicons name="eye" size={18} color={Palette.blue} />
                     </TouchableOpacity>
@@ -725,26 +1015,38 @@ export default function ThemeManagement() {
                 <View style={styles.formGroup}>
                   <Text style={[styles.formLabel, { color: theme.text }]}>Theme Name *</Text>
                   <TextInput
-                    style={[styles.formInput, { color: theme.text, borderColor: theme.border }]}
+                    style={[styles.formInput, { color: theme.text, borderColor: !addError.isValid ? Palette.red : theme.border }]}
                     placeholder="Enter theme name"
                     placeholderTextColor={theme.textSecondary}
                     value={themeName}
-                    onChangeText={setThemeName}
+                    onChangeText={(text) => {
+                      setThemeName(text);
+                      if (text.trim()) {
+                        setAddError({ field: "", message: "", isValid: true });
+                      }
+                    }}
                   />
+                  <ValidationError message={addError.message} visible={!addError.isValid} />
                 </View>
 
                 <View style={styles.formGroup}>
-                  <Text style={[styles.formLabel, { color: theme.text }]}>Description</Text>
+                  <Text style={[styles.formLabel, { color: theme.text }]}>Description *</Text>
                   <TextInput
-                    style={[styles.formInput, styles.formTextarea, { color: theme.text, borderColor: theme.border }]}
+                    style={[styles.formInput, styles.formTextarea, { color: theme.text, borderColor: !addDescriptionError.isValid ? Palette.red : theme.border }]}
                     placeholder="Enter theme description"
                     placeholderTextColor={theme.textSecondary}
                     value={description}
-                    onChangeText={setDescription}
+                    onChangeText={(text) => {
+                      setDescription(text);
+                      if (text.trim()) {
+                        setAddDescriptionError({ field: "", message: "", isValid: true });
+                      }
+                    }}
                     multiline
                     numberOfLines={4}
                     textAlignVertical="top"
                   />
+                  <ValidationError message={addDescriptionError.message} visible={!addDescriptionError.isValid} />
                 </View>
 
                 {/* Color Palette */}
@@ -801,49 +1103,112 @@ export default function ThemeManagement() {
                 </View>
 
                 {/* Decoration Style Dropdown */}
-                <StyledDropdown
-                  label="Decoration Style"
-                  placeholder="Select decoration style"
+                <MultiSelectDropdown
+                  label="Decoration Styles *"
+                  placeholder="Select decoration styles"
                   options={decorationStyles.map((s) => ({ id: s.decoration_style_id, name: s.style_name }))}
-                  selectedValue={selectedDecoration}
-                  onSelect={setSelectedDecoration}
+                  selectedValues={selectedDecorations}
+                  onSelect={(values) => {
+                    setSelectedDecorations(values);
+                    if (values.length > 0) {
+                      setAddDecorationsError({ field: "", message: "", isValid: true });
+                    }
+                  }}
                   theme={theme}
                   isOpen={decorationDropdownOpen}
                   onToggle={setDecorationDropdownOpen}
                 />
+                <ValidationError message={addDecorationsError.message} visible={!addDecorationsError.isValid} />
 
                 {/* Lighting Style Dropdown */}
-                <StyledDropdown
-                  label="Lighting Style"
-                  placeholder="Select lighting style"
+                <MultiSelectDropdown
+                  label="Lighting Styles *"
+                  placeholder="Select lighting styles"
                   options={lightingStyles.map((s) => ({ id: s.lighting_style_id, name: s.style_name }))}
-                  selectedValue={selectedLighting}
-                  onSelect={setSelectedLighting}
+                  selectedValues={selectedLightings}
+                  onSelect={(values) => {
+                    setSelectedLightings(values);
+                    if (values.length > 0) {
+                      setAddLightingsError({ field: "", message: "", isValid: true });
+                    }
+                  }}
                   theme={theme}
                   isOpen={lightingDropdownOpen}
                   onToggle={setLightingDropdownOpen}
                 />
+                <ValidationError message={addLightingsError.message} visible={!addLightingsError.isValid} />
 
                 {/* Category Dropdown */}
-                <StyledDropdown
-                  label="Category"
-                  placeholder="Select category"
+                <MultiSelectDropdown
+                  label="Categories *"
+                  placeholder="Select categories"
                   options={eventCategories.map((c) => ({ id: c.category_id, name: c.category_name }))}
-                  selectedValue={selectedCategory}
-                  onSelect={setSelectedCategory}
+                  selectedValues={selectedCategories}
+                  onSelect={(values) => {
+                    setSelectedCategories(values);
+                    if (values.length > 0) {
+                      setAddCategoriesError({ field: "", message: "", isValid: true });
+                    }
+                  }}
                   theme={theme}
                   isOpen={categoryDropdownOpen}
                   onToggle={setCategoryDropdownOpen}
                 />
+                <ValidationError message={addCategoriesError.message} visible={!addCategoriesError.isValid} />
 
-                {/* Thumbnail Upload */}
-                <ThumbnailUpload
-                  label="Theme Thumbnail"
-                  thumbnailUri={thumbnailUri}
-                  onThumbnailChange={setThumbnailUri}
-                  onImageZoom={(uri) => handleOpenImageZoom(uri, "add")}
-                  theme={theme}
-                />
+                {/* Theme Images Upload */}
+                <View style={styles.formGroup}>
+                  <Text style={[styles.formLabel, { color: theme.text }]}>Theme Images *</Text>
+                  <TouchableOpacity
+                    style={[styles.addImageButton, { borderColor: !addImagesError.isValid ? Palette.red : theme.border }]}
+                    onPress={async () => {
+                      const result = await (await import("expo-image-picker")).launchImageLibraryAsync({
+                        mediaTypes: ['images'],
+                        allowsEditing: false,
+                        quality: 1,
+                      });
+                      if (!result.canceled && result.assets[0]) {
+                        setThemeImages([...themeImages, result.assets[0].uri]);
+                      }
+                    }}
+                  >
+                    <Ionicons name="add" size={24} color={Palette.primary} />
+                    <Text style={[styles.addImageButtonText, { color: theme.text }]}>Add Image</Text>
+                  </TouchableOpacity>
+
+                  {themeImages.length > 0 && (
+                    <View style={styles.imagesGrid}>
+                      {themeImages.map((imageUri, index) => (
+                        <View key={index} style={[styles.imageCard, { backgroundColor: theme.card, borderColor: thumbnailIndex === index ? Palette.primary : theme.border }]}>
+                          <Image source={{ uri: imageUri }} style={styles.imagePreview} />
+                          <View style={styles.imageActions}>
+                            <TouchableOpacity
+                              style={[styles.thumbnailBadge, { backgroundColor: thumbnailIndex === index ? Palette.primary : theme.lightBg }]}
+                              onPress={() => setThumbnailIndex(index)}
+                            >
+                              <Text style={[styles.badgeText, { color: thumbnailIndex === index ? "white" : theme.text }]}>
+                                {thumbnailIndex === index ? "Thumbnail" : "Set"}
+                              </Text>
+                            </TouchableOpacity>
+                            <TouchableOpacity
+                              style={styles.removeImageButton}
+                              onPress={() => {
+                                const newImages = themeImages.filter((_, i) => i !== index);
+                                setThemeImages(newImages);
+                                if (thumbnailIndex === index) {
+                                  setThumbnailIndex(Math.max(0, newImages.length - 1));
+                                }
+                              }}
+                            >
+                              <Ionicons name="trash" size={18} color={Palette.red} />
+                            </TouchableOpacity>
+                          </View>
+                        </View>
+                      ))}
+                    </View>
+                  )}
+                  <ValidationError message={addImagesError.message} visible={!addImagesError.isValid} />
+                </View>
               </View>
 
               {/* Footer */}
@@ -891,26 +1256,38 @@ export default function ThemeManagement() {
                 <View style={styles.formGroup}>
                   <Text style={[styles.formLabel, { color: theme.text }]}>Theme Name *</Text>
                   <TextInput
-                    style={[styles.formInput, { color: theme.text, borderColor: theme.border }]}
+                    style={[styles.formInput, { color: theme.text, borderColor: !editError.isValid ? Palette.red : theme.border }]}
                     placeholder="Enter theme name"
                     placeholderTextColor={theme.textSecondary}
                     value={editThemeName}
-                    onChangeText={setEditThemeName}
+                    onChangeText={(text) => {
+                      setEditThemeName(text);
+                      if (text.trim()) {
+                        setEditError({ field: "", message: "", isValid: true });
+                      }
+                    }}
                   />
+                  <ValidationError message={editError.message} visible={!editError.isValid} />
                 </View>
 
                 <View style={styles.formGroup}>
-                  <Text style={[styles.formLabel, { color: theme.text }]}>Description</Text>
+                  <Text style={[styles.formLabel, { color: theme.text }]}>Description *</Text>
                   <TextInput
-                    style={[styles.formInput, styles.formTextarea, { color: theme.text, borderColor: theme.border }]}
+                    style={[styles.formInput, styles.formTextarea, { color: theme.text, borderColor: !editDescriptionError.isValid ? Palette.red : theme.border }]}
                     placeholder="Enter theme description"
                     placeholderTextColor={theme.textSecondary}
                     value={editDescription}
-                    onChangeText={setEditDescription}
+                    onChangeText={(text) => {
+                      setEditDescription(text);
+                      if (text.trim()) {
+                        setEditDescriptionError({ field: "", message: "", isValid: true });
+                      }
+                    }}
                     multiline
                     numberOfLines={4}
                     textAlignVertical="top"
                   />
+                  <ValidationError message={editDescriptionError.message} visible={!editDescriptionError.isValid} />
                 </View>
 
                 <Text style={[styles.sectionTitle, { color: theme.text, marginTop: 24 }]}>Color Palette</Text>
@@ -943,49 +1320,112 @@ export default function ThemeManagement() {
                 ))}
 
                 {/* Decoration Style Dropdown */}
-                <StyledDropdown
-                  label="Decoration Style"
-                  placeholder="Select decoration style"
+                <MultiSelectDropdown
+                  label="Decoration Styles *"
+                  placeholder="Select decoration styles"
                   options={decorationStyles.map((s) => ({ id: s.decoration_style_id, name: s.style_name }))}
-                  selectedValue={editSelectedDecoration}
-                  onSelect={setEditSelectedDecoration}
+                  selectedValues={editSelectedDecorations}
+                  onSelect={(values) => {
+                    setEditSelectedDecorations(values);
+                    if (values.length > 0) {
+                      setEditDecorationsError({ field: "", message: "", isValid: true });
+                    }
+                  }}
                   theme={theme}
                   isOpen={editDecorationDropdownOpen}
                   onToggle={setEditDecorationDropdownOpen}
                 />
+                <ValidationError message={editDecorationsError.message} visible={!editDecorationsError.isValid} />
 
                 {/* Lighting Style Dropdown */}
-                <StyledDropdown
-                  label="Lighting Style"
-                  placeholder="Select lighting style"
+                <MultiSelectDropdown
+                  label="Lighting Styles *"
+                  placeholder="Select lighting styles"
                   options={lightingStyles.map((s) => ({ id: s.lighting_style_id, name: s.style_name }))}
-                  selectedValue={editSelectedLighting}
-                  onSelect={setEditSelectedLighting}
+                  selectedValues={editSelectedLightings}
+                  onSelect={(values) => {
+                    setEditSelectedLightings(values);
+                    if (values.length > 0) {
+                      setEditLightingsError({ field: "", message: "", isValid: true });
+                    }
+                  }}
                   theme={theme}
                   isOpen={editLightingDropdownOpen}
                   onToggle={setEditLightingDropdownOpen}
                 />
+                <ValidationError message={editLightingsError.message} visible={!editLightingsError.isValid} />
 
                 {/* Category Dropdown */}
-                <StyledDropdown
-                  label="Category"
-                  placeholder="Select category"
+                <MultiSelectDropdown
+                  label="Categories *"
+                  placeholder="Select categories"
                   options={eventCategories.map((c) => ({ id: c.category_id, name: c.category_name }))}
-                  selectedValue={editSelectedCategory}
-                  onSelect={setEditSelectedCategory}
+                  selectedValues={editSelectedCategories}
+                  onSelect={(values) => {
+                    setEditSelectedCategories(values);
+                    if (values.length > 0) {
+                      setEditCategoriesError({ field: "", message: "", isValid: true });
+                    }
+                  }}
                   theme={theme}
                   isOpen={editCategoryDropdownOpen}
                   onToggle={setEditCategoryDropdownOpen}
                 />
 
-                {/* Thumbnail Upload */}
-                <ThumbnailUpload
-                  label="Theme Thumbnail"
-                  thumbnailUri={editThumbnailUri}
-                  onThumbnailChange={setEditThumbnailUri}
-                  onImageZoom={(uri) => handleOpenImageZoom(uri, "edit")}
-                  theme={theme}
-                />
+                {/* Theme Images Upload */}
+                <View style={styles.formGroup}>
+                  <Text style={[styles.formLabel, { color: theme.text }]}>Theme Images *</Text>
+                  <TouchableOpacity
+                    style={[styles.addImageButton, { borderColor: !editImagesError.isValid ? Palette.red : theme.border }]}
+                    onPress={async () => {
+                      const result = await (await import("expo-image-picker")).launchImageLibraryAsync({
+                        mediaTypes: ['images'],
+                        allowsEditing: false,
+                        quality: 1,
+                      });
+                      if (!result.canceled && result.assets[0]) {
+                        setEditThemeImages([...editThemeImages, result.assets[0].uri]);
+                        setEditImagesError({ field: "", message: "", isValid: true });
+                      }
+                    }}
+                  >
+                    <Ionicons name="add" size={24} color={Palette.primary} />
+                    <Text style={[styles.addImageButtonText, { color: theme.text }]}>Add Image</Text>
+                  </TouchableOpacity>
+
+                  {editThemeImages.length > 0 && (
+                    <View style={styles.imagesGrid}>
+                      {editThemeImages.map((imageUri, index) => (
+                        <View key={index} style={[styles.imageCard, { backgroundColor: theme.card, borderColor: editThumbnailIndex === index ? Palette.primary : theme.border }]}>
+                          <Image source={{ uri: imageUri }} style={styles.imagePreview} />
+                          <View style={styles.imageActions}>
+                            <TouchableOpacity
+                              style={[styles.thumbnailBadge, { backgroundColor: editThumbnailIndex === index ? Palette.primary : theme.lightBg }]}
+                              onPress={() => setEditThumbnailIndex(index)}
+                            >
+                              <Text style={[styles.badgeText, { color: editThumbnailIndex === index ? "white" : theme.text }]}>
+                                {editThumbnailIndex === index ? "Thumbnail" : "Set"}
+                              </Text>
+                            </TouchableOpacity>
+                            <TouchableOpacity
+                              style={styles.removeImageButton}
+                              onPress={() => {
+                                const newImages = editThemeImages.filter((_, i) => i !== index);
+                                setEditThemeImages(newImages);
+                                if (editThumbnailIndex === index) {
+                                  setEditThumbnailIndex(Math.max(0, newImages.length - 1));
+                                }
+                              }}
+                            >
+                              <Ionicons name="trash" size={18} color={Palette.red} />
+                            </TouchableOpacity>
+                          </View>
+                        </View>
+                      ))}
+                    </View>
+                  )}
+                  <ValidationError message={editImagesError.message} visible={!editImagesError.isValid} />
+                </View>
               </View>
 
               <View style={styles.modalFooter}>
@@ -1025,14 +1465,12 @@ export default function ThemeManagement() {
               </View>
 
               <View style={styles.modalBody}>
-                {/* Thumbnail */}
-                {viewingTheme?.thumbnail && (
-                  <View style={styles.thumbnailSection}>
-                    <TouchableOpacity onPress={() => handleOpenImageZoom(viewingTheme?.thumbnail, "details")} style={{ width: "100%" }}>
-                      <Image source={{ uri: viewingTheme?.thumbnail }} style={styles.detailsThumbnail} resizeMode="contain" />
-                    </TouchableOpacity>
-                  </View>
-                )}
+                {/* Image Gallery */}
+                <ThemeImageGallery
+                  images={viewingTheme?.images || []}
+                  onImagePress={(imageUri) => handleOpenImageZoom(imageUri, "details")}
+                  theme={theme}
+                />
 
                 {/* Theme Name */}
                 <View style={styles.detailGroup}>
@@ -1080,17 +1518,113 @@ export default function ThemeManagement() {
                   </View>
                 </View>
 
-                {/* Category and Type */}
-                <View style={{ flexDirection: "row", gap: 12 }}>
-                  <View style={[styles.detailGroup, { flex: 1 }]}>
-                    <Text style={[styles.detailLabel, { color: theme.textSecondary }]}>Category</Text>
-                    <Text style={[styles.detailValue, { color: theme.text }]}>{viewingTheme?.category}</Text>
+                {/* Categories */}
+                {viewingTheme?.categories && viewingTheme.categories.length > 0 && (
+                  <View style={styles.detailGroup}>
+                    <Text style={[styles.detailLabel, { color: theme.textSecondary }]}>Categories ({viewingTheme.categories.length})</Text>
+                    <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
+                      {viewingTheme.categories.map((cat: any, index: number) => (
+                        <View 
+                          key={index} 
+                          style={[
+                            styles.statusBadge, 
+                            { 
+                              backgroundColor: theme.lightBg, 
+                              width: 'auto',
+                              paddingHorizontal: 12,
+                              paddingVertical: 6,
+                              borderRadius: 4,
+                              marginBottom: 4
+                            }
+                          ]}
+                        >
+                          <Text style={[styles.statusText, { color: theme.text }]}>
+                            {getCategoryName(cat)}
+                          </Text>
+                        </View>
+                      ))}
+                    </View>
                   </View>
-                  <View style={[styles.detailGroup, { flex: 1 }]}>
-                    <Text style={[styles.detailLabel, { color: theme.textSecondary }]}>Type</Text>
-                    <Text style={[styles.detailValue, { color: theme.text }]}>{viewingTheme?.type}</Text>
+                )}
+
+                {viewingTheme?.categories && viewingTheme.categories.length === 0 && (
+                  <View style={styles.detailGroup}>
+                    <Text style={[styles.detailLabel, { color: theme.textSecondary }]}>Categories</Text>
+                    <Text style={[styles.detailValue, { color: theme.text }]}>No categories assigned</Text>
                   </View>
-                </View>
+                )}
+
+                {/* Decorations */}
+                {viewingTheme?.decorations && viewingTheme.decorations.length > 0 && (
+                  <View style={styles.detailGroup}>
+                    <Text style={[styles.detailLabel, { color: theme.textSecondary }]}>Decorations ({viewingTheme.decorations.length})</Text>
+                    <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
+                      {viewingTheme.decorations.map((dec: any, index: number) => (
+                        <View 
+                          key={index} 
+                          style={[
+                            styles.statusBadge, 
+                            { 
+                              backgroundColor: theme.lightBg, 
+                              width: 'auto',
+                              paddingHorizontal: 12,
+                              paddingVertical: 6,
+                              borderRadius: 4,
+                              marginBottom: 4
+                            }
+                          ]}
+                        >
+                          <Text style={[styles.statusText, { color: theme.text }]}>
+                            {getDecorationName(dec)}
+                          </Text>
+                        </View>
+                      ))}
+                    </View>
+                  </View>
+                )}
+
+                {viewingTheme?.decorations && viewingTheme.decorations.length === 0 && (
+                  <View style={styles.detailGroup}>
+                    <Text style={[styles.detailLabel, { color: theme.textSecondary }]}>Decorations</Text>
+                    <Text style={[styles.detailValue, { color: theme.text }]}>No decorations assigned</Text>
+                  </View>
+                )}
+
+                {/* Lighting */}
+                {viewingTheme?.lightings && viewingTheme.lightings.length > 0 && (
+                  <View style={styles.detailGroup}>
+                    <Text style={[styles.detailLabel, { color: theme.textSecondary }]}>Lighting ({viewingTheme.lightings.length})</Text>
+                    <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
+                      {viewingTheme.lightings.map((light: any, index: number) => (
+                        <View 
+                          key={index} 
+                          style={[
+                            styles.statusBadge, 
+                            { 
+                              backgroundColor: theme.lightBg, 
+                              width: 'auto',
+                              paddingHorizontal: 12,
+                              paddingVertical: 6,
+                              borderRadius: 4,
+                              marginBottom: 4
+                            }
+                          ]}
+                        >
+                          <Text style={[styles.statusText, { color: theme.text }]}>
+                            {getLightingName(light)}
+                          </Text>
+                        </View>
+                      ))}
+                    </View>
+                  </View>
+                )}
+
+                {viewingTheme?.lightings && viewingTheme.lightings.length === 0 && (
+                  <View style={styles.detailGroup}>
+                    <Text style={[styles.detailLabel, { color: theme.textSecondary }]}>Lighting</Text>
+                    <Text style={[styles.detailValue, { color: theme.text }]}>No lighting assigned</Text>
+                  </View>
+                )}
               </View>
 
               {/* Footer */}
@@ -1126,6 +1660,19 @@ export default function ThemeManagement() {
           </TouchableOpacity>
         </View>
       </Modal>
+
+      {/* Delete Confirmation Modal */}
+      <DeleteConfirmationModal
+        isOpen={showDeleteModal}
+        onClose={handleCloseDeleteModal}
+        onConfirm={handleConfirmDelete}
+        title="Delete Theme"
+        message="Are you sure you want to delete this theme? This action cannot be undone."
+        confirmText="Delete"
+        cancelText="Cancel"
+        theme={theme}
+        isLoading={isDeleting}
+      />
     </View>
   );
 }
@@ -1220,6 +1767,8 @@ const styles = StyleSheet.create({
   columnHeader: {
     fontWeight: "600",
     fontSize: 12,
+    justifyContent: "center",
+    alignItems: "center",
   },
   tableRow: {
     flexDirection: "row",
@@ -1253,7 +1802,7 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     justifyContent: "center",
     alignItems: "center",
-    gap: 4,
+    gap: 12,
   },
   actionIcon: {
     padding: 6,
@@ -1401,12 +1950,6 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: "600",
   },
-  detailsThumbnail: {
-    width: "100%",
-    height: 250,
-    borderRadius: 8,
-    marginBottom: 12,
-  },
   detailGroup: {
     marginBottom: 20,
   },
@@ -1471,8 +2014,61 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     alignItems: "center",
   },
-  thumbnailSection: {
+  addImageButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    paddingVertical: 16,
+    borderWidth: 2,
+    borderStyle: "dashed",
+    borderRadius: 8,
+    gap: 8,
     marginBottom: 16,
+  },
+  addImageButtonText: {
+    fontSize: 14,
+    fontWeight: "600",
+  },
+  imagesGrid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 12,
+  },
+  imageCard: {
+    width: "48%",
+    borderRadius: 8,
+    borderWidth: 2,
+    overflow: "hidden",
+    minHeight: 120,
+  },
+  imagePreview: {
+    width: "100%",
+    height: 100,
+    resizeMode: "cover",
+  },
+  imageActions: {
+    flexDirection: "row",
+    padding: 8,
+    justifyContent: "space-between",
+    alignItems: "center",
+    gap: 6,
+  },
+  thumbnailBadge: {
+    flex: 1,
+    paddingVertical: 4,
+    paddingHorizontal: 8,
+    borderRadius: 4,
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  badgeText: {
+    fontSize: 11,
+    fontWeight: "600",
+  },
+  removeImageButton: {
+    padding: 6,
+    justifyContent: "center",
+    alignItems: "center",
   },
 });
 

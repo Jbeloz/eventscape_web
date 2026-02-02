@@ -1139,3 +1139,25 @@ ALTER TABLE venue_blocked_dates DISABLE ROW LEVEL SECURITY;
 ALTER TABLE venue_overtime_logs DISABLE ROW LEVEL SECURITY;
 ALTER TABLE booking_adjustments DISABLE ROW LEVEL SECURITY;
 ALTER TABLE booking_billing_summary DISABLE ROW LEVEL SECURITY;
+
+-- Grant sequence permissions for anonymous and authenticated users
+GRANT USAGE, SELECT ON SEQUENCE event_categories_category_id_seq TO anon, authenticated, service_role;
+GRANT USAGE, SELECT ON SEQUENCE venue_types_venue_type_id_seq TO anon, authenticated, service_role;
+GRANT USAGE, SELECT ON SEQUENCE venues_venue_id_seq TO anon, authenticated, service_role;
+GRANT USAGE, SELECT ON SEQUENCE venue_venue_types_venue_type_link_id_seq TO anon, authenticated, service_role;
+GRANT USAGE, SELECT ON SEQUENCE venue_contacts_contact_id_seq TO anon, authenticated, service_role;
+GRANT USAGE, SELECT ON SEQUENCE venue_images_image_id_seq TO anon, authenticated, service_role;
+GRANT USAGE, SELECT ON SEQUENCE venue_facilities_facility_id_seq TO anon, authenticated, service_role;
+GRANT USAGE, SELECT ON SEQUENCE venue_rules_rule_id_seq TO anon, authenticated, service_role;
+GRANT USAGE, SELECT ON SEQUENCE venue_floor_plans_floor_plan_id_seq TO anon, authenticated, service_role;
+GRANT USAGE, SELECT ON SEQUENCE venue_doors_door_id_seq TO anon, authenticated, service_role;
+GRANT USAGE, SELECT ON SEQUENCE venue_base_rates_rate_id_seq TO anon, authenticated, service_role;
+GRANT USAGE, SELECT ON SEQUENCE venue_overtime_rates_overtime_rate_id_seq TO anon, authenticated, service_role;
+GRANT USAGE, SELECT ON SEQUENCE venue_packages_package_id_seq TO anon, authenticated, service_role;
+GRANT USAGE, SELECT ON SEQUENCE venue_package_inclusions_inclusion_id_seq TO anon, authenticated, service_role;
+GRANT USAGE, SELECT ON SEQUENCE venue_seasonal_pricing_seasonal_price_id_seq TO anon, authenticated, service_role;
+GRANT USAGE, SELECT ON SEQUENCE venue_blocked_dates_blocked_id_seq TO anon, authenticated, service_role;
+GRANT USAGE, SELECT ON SEQUENCE venue_overtime_logs_overtime_id_seq TO anon, authenticated, service_role;
+GRANT USAGE, SELECT ON SEQUENCE venue_specifications_specification_id_seq TO anon, authenticated, service_role;
+GRANT USAGE, SELECT ON SEQUENCE venue_allowed_event_types_venue_event_type_id_seq TO anon, authenticated, service_role;
+GRANT USAGE, SELECT ON SEQUENCE venue_admin_assignments_assignment_id_seq TO anon, authenticated, service_role;

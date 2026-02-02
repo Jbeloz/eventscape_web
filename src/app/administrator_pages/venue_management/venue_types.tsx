@@ -1,20 +1,22 @@
 import { Ionicons } from "@expo/vector-icons";
 import { useEffect, useState } from "react";
 import {
-    ActivityIndicator,
-    Modal,
-    ScrollView,
-    StyleSheet,
-    Switch,
-    Text,
-    TextInput,
-    TouchableOpacity,
-    View,
+  ActivityIndicator,
+  Alert,
+  Modal,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View
 } from "react-native";
 import { Palette } from "../../../../assets/colors/palette";
 import AdminHeader from "../../../components/admin-header";
 import AdminSidebar from "../../../components/admin-sidebar";
+import DeleteConfirmationModal from "../../../components/delete_confirmation_modal";
 import { useTheme } from "../../../context/theme-context";
+import { createVenueType, deleteVenueType, fetchVenueTypes, updateVenueType } from "../../../services/venueService";
 
 export default function VenueTypes() {
   const { isDarkMode, toggleTheme } = useTheme();
@@ -24,15 +26,18 @@ export default function VenueTypes() {
   const [showAddModal, setShowAddModal] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
   const [newVenueTypeName, setNewVenueTypeName] = useState("");
-  const [newVenueTypeDescription, setNewVenueTypeDescription] = useState("");
   const [editingVenueType, setEditingVenueType] = useState<any>(null);
   const [editVenueTypeName, setEditVenueTypeName] = useState("");
-  const [editVenueTypeDescription, setEditVenueTypeDescription] = useState("");
   
   const [venueTypes, setVenueTypes] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [sortDropdownOpen, setSortDropdownOpen] = useState(false);
+
+  // Delete Modal State
+  const [showDeleteModal, setShowDeleteModal] = useState(false);
+  const [deleteVenueTypeId, setDeleteVenueTypeId] = useState<number | null>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
 
   const theme = isDarkMode ? Palette.dark : Palette.light;
 
@@ -41,111 +46,138 @@ export default function VenueTypes() {
     {
       id: 1,
       name: "Convention Center",
-      description: "Large venue for conferences and conventions",
-      venueCount: 12,
-      isActive: true,
+      createdDate: "2024-01-15",
+      lastUpdated: "2024-12-10",
     },
     {
       id: 2,
       name: "Meeting Room",
-      description: "Intimate rooms for business meetings",
-      venueCount: 25,
-      isActive: true,
+      createdDate: "2024-01-20",
+      lastUpdated: "2024-12-05",
     },
     {
       id: 3,
       name: "Outdoor Garden",
-      description: "Garden spaces for outdoor events",
-      venueCount: 8,
-      isActive: true,
+      createdDate: "2024-02-01",
+      lastUpdated: "2024-11-28",
     },
     {
       id: 4,
       name: "Banquet Hall",
-      description: "Elegant halls for formal events and banquets",
-      venueCount: 15,
-      isActive: false,
+      createdDate: "2024-02-10",
+      lastUpdated: "2024-10-15",
     },
     {
       id: 5,
       name: "Wedding Venue",
-      description: "Specialized venues for wedding ceremonies",
-      venueCount: 18,
-      isActive: true,
+      createdDate: "2024-03-05",
+      lastUpdated: "2024-12-01",
     },
     {
       id: 6,
       name: "Corporate Event Space",
-      description: "Modern spaces for corporate functions",
-      venueCount: 10,
-      isActive: true,
+      createdDate: "2024-03-15",
+      lastUpdated: "2024-11-20",
     },
   ];
 
   useEffect(() => {
-    fetchVenueTypes();
+    loadVenueTypesData();
   }, []);
 
-  const fetchVenueTypes = async () => {
+  const loadVenueTypesData = async () => {
     try {
       setLoading(true);
-      // TODO: Replace with actual Supabase query
-      // const { data, error } = await supabase
-      //   .from("venue_types")
-      //   .select("*")
-      //   .order("created_at", { ascending: false });
-      
-      // For now, using mock data
-      setVenueTypes(mockVenueTypes);
+      setError(null);
+      const { data, error } = await fetchVenueTypes();
+      if (error) {
+        Alert.alert("Error", "Failed to load venue types");
+        setError(error);
+      } else {
+        // Map database response to component format
+        const mappedTypes = data?.map((type: any) => ({
+          id: type.venue_type_id,
+          name: type.type_name,
+          createdDate: type.created_at ? type.created_at.split("T")[0] : "",
+          lastUpdated: type.updated_at ? type.updated_at.split("T")[0] : "",
+        })) || [];
+        setVenueTypes(mappedTypes);
+      }
     } catch (err: any) {
+      Alert.alert("Error", err.message);
       setError(err.message);
     } finally {
       setLoading(false);
     }
   };
 
-  const handleAddVenueType = () => {
+  const handleAddVenueType = async () => {
     if (newVenueTypeName.trim()) {
-      const newType = {
-        id: Math.max(...venueTypes.map(t => t.id), 0) + 1,
-        name: newVenueTypeName,
-        description: newVenueTypeDescription,
-        venueCount: 0,
-        isActive: true,
-      };
-      setVenueTypes([...venueTypes, newType]);
-      setNewVenueTypeName("");
-      setNewVenueTypeDescription("");
-      setShowAddModal(false);
+      try {
+        const { data, error } = await createVenueType(newVenueTypeName);
+        console.log("Create venue type response:", { data, error });
+        
+        if (error) {
+          Alert.alert("Error", `Failed to create venue type: ${error}`);
+        } else if (data) {
+          const newType = {
+            id: data.venue_type_id,
+            name: data.type_name,
+            venueCount: 0,
+          };
+          setVenueTypes([...venueTypes, newType]);
+          setNewVenueTypeName("");
+          setShowAddModal(false);
+          Alert.alert("Success", "Venue type created successfully");
+        } else {
+          Alert.alert("Error", "No data returned from server");
+        }
+      } catch (err: any) {
+        console.error("Exception in handleAddVenueType:", err);
+        Alert.alert("Error", err.message);
+      }
+    } else {
+      Alert.alert("Validation", "Please enter a venue type name");
     }
   };
 
   const handleCancelModal = () => {
     setNewVenueTypeName("");
-    setNewVenueTypeDescription("");
     setShowAddModal(false);
   };
 
   const handleEditVenueType = (venueType: any) => {
     setEditingVenueType(venueType);
     setEditVenueTypeName(venueType.name);
-    setEditVenueTypeDescription(venueType.description);
     setShowEditModal(true);
   };
 
-  const handleSaveEditVenueType = () => {
+  const handleSaveEditVenueType = async () => {
     if (editVenueTypeName.trim() && editingVenueType) {
-      setVenueTypes(
-        venueTypes.map((type) =>
-          type.id === editingVenueType.id
-            ? { ...type, name: editVenueTypeName, description: editVenueTypeDescription }
-            : type
-        )
-      );
-      setShowEditModal(false);
-      setEditingVenueType(null);
-      setEditVenueTypeName("");
-      setEditVenueTypeDescription("");
+      try {
+        const { error } = await updateVenueType(editingVenueType.id, {
+          type_name: editVenueTypeName,
+        });
+
+        if (error) {
+          Alert.alert("Error", `Failed to update venue type: ${error}`);
+        } else {
+          setVenueTypes(
+            venueTypes.map((type) =>
+              type.id === editingVenueType.id
+                ? { ...type, name: editVenueTypeName }
+                : type
+            )
+          );
+          setShowEditModal(false);
+          setEditingVenueType(null);
+          setEditVenueTypeName("");
+          Alert.alert("Success", "Venue type updated successfully");
+        }
+      } catch (err: any) {
+        console.error("Exception in handleSaveEditVenueType:", err);
+        Alert.alert("Error", err.message);
+      }
     }
   };
 
@@ -153,20 +185,51 @@ export default function VenueTypes() {
     setShowEditModal(false);
     setEditingVenueType(null);
     setEditVenueTypeName("");
-    setEditVenueTypeDescription("");
   };
 
   const filteredVenueTypes = venueTypes.filter((type) => {
-    const matchesSearch = type.name.toLowerCase().includes(searchText.toLowerCase()) ||
-      type.description.toLowerCase().includes(searchText.toLowerCase());
+    const matchesSearch = type.name.toLowerCase().includes(searchText.toLowerCase());
     return matchesSearch;
   }).sort((a, b) => {
     if (sortBy === "Name (A-Z)") return a.name.localeCompare(b.name);
     if (sortBy === "Name (Z-A)") return b.name.localeCompare(a.name);
-    if (sortBy === "Venues (Low-High)") return a.venueCount - b.venueCount;
-    if (sortBy === "Venues (High-Low)") return b.venueCount - a.venueCount;
+    if (sortBy === "Created (Newest)") return new Date(b.createdDate).getTime() - new Date(a.createdDate).getTime();
+    if (sortBy === "Created (Oldest)") return new Date(a.createdDate).getTime() - new Date(b.createdDate).getTime();
     return 0;
   });
+
+  const handleDeleteVenueType = (typeId: number) => {
+    setDeleteVenueTypeId(typeId);
+    setShowDeleteModal(true);
+  };
+
+  const handleConfirmDelete = async () => {
+    if (!deleteVenueTypeId) return;
+
+    setIsDeleting(true);
+    try {
+      const { error } = await deleteVenueType(deleteVenueTypeId);
+      if (error) {
+        Alert.alert("Error", "Failed to delete venue type");
+        setIsDeleting(false);
+      } else {
+        setVenueTypes(venueTypes.filter(t => t.id !== deleteVenueTypeId));
+        Alert.alert("Success", "Venue type deleted successfully");
+        setShowDeleteModal(false);
+        setDeleteVenueTypeId(null);
+      }
+    } catch (err: any) {
+      Alert.alert("Error", err.message);
+      setIsDeleting(false);
+    }
+  };
+
+  const handleCloseDeleteModal = () => {
+    if (!isDeleting) {
+      setShowDeleteModal(false);
+      setDeleteVenueTypeId(null);
+    }
+  };
 
   const getInitials = (name: string) => {
     return name.split(" ").map(word => word[0]).join("").toUpperCase();
@@ -230,7 +293,7 @@ export default function VenueTypes() {
 
               {sortDropdownOpen && (
                 <View style={[styles.dropdownMenu, { backgroundColor: theme.card, borderColor: theme.border }]}>
-                  {["Name (A-Z)", "Name (Z-A)", "Venues (Low-High)", "Venues (High-Low)"].map((sort) => (
+                  {["Name (A-Z)", "Name (Z-A)", "Created (Newest)", "Created (Oldest)"].map((sort) => (
                     <TouchableOpacity
                       key={sort}
                       style={styles.dropdownItem}
@@ -252,8 +315,8 @@ export default function VenueTypes() {
             {/* Table Header */}
             <View style={[styles.tableHeader, { backgroundColor: theme.lightBg, borderColor: theme.border }]}>
               <Text style={[styles.columnHeader, { color: theme.text, flex: 2 }]}>Venue Type Name</Text>
-              <Text style={[styles.columnHeader, { color: theme.text, flex: 2.5 }]}>Description</Text>
-              <Text style={[styles.columnHeader, { color: theme.text, flex: 1 }]}>Status</Text>
+              <Text style={[styles.columnHeader, { color: theme.text, flex: 1 }]}>Created Date</Text>
+              <Text style={[styles.columnHeader, { color: theme.text, flex: 1 }]}>Last Updated</Text>
               <Text style={[styles.columnHeader, { color: theme.text, flex: 0.8 }]}>Actions</Text>
             </View>
 
@@ -269,27 +332,18 @@ export default function VenueTypes() {
                   {/* Type Name */}
                   <Text style={[styles.cellText, { color: theme.text, flex: 2, fontWeight: "500" }]}>{type.name}</Text>
 
-                  {/* Description */}
-                  <Text style={[styles.cellText, { color: theme.textSecondary, flex: 2.5 }]} numberOfLines={2}>
-                    {type.description}
-                  </Text>
+                  {/* Created Date */}
+                  <Text style={[styles.cellText, { color: theme.textSecondary, flex: 1 }]}>{type.createdDate}</Text>
 
-                  {/* Status Toggle with Label */}
-                  <View style={{ flex: 1, justifyContent: "center", alignItems: "flex-start" }}>
-                    <View style={styles.statusContainer}>
-                      <Switch value={type.isActive} disabled trackColor={{ false: theme.textSecondary, true: Palette.primary }} />
-                      <Text style={[styles.statusLabel, { color: type.isActive ? Palette.green : theme.textSecondary }]}>
-                        {type.isActive ? "Active" : "Inactive"}
-                      </Text>
-                    </View>
-                  </View>
+                  {/* Last Updated */}
+                  <Text style={[styles.cellText, { color: theme.textSecondary, flex: 1 }]}>{type.lastUpdated}</Text>
 
                   {/* Actions */}
-                  <View style={[styles.actionsColumn, { flex: 0.8 }]}>
+                  <View style={[styles.actionsColumn, { flex: 0.8, justifyContent: "flex-start", gap: 12 }]}>
                     <TouchableOpacity style={styles.actionIcon} onPress={() => handleEditVenueType(type)}>
                       <Ionicons name="pencil" size={18} color={Palette.blue} />
                     </TouchableOpacity>
-                    <TouchableOpacity style={styles.actionIcon}>
+                    <TouchableOpacity style={styles.actionIcon} onPress={() => handleDeleteVenueType(type.id)}>
                       <Ionicons name="trash" size={18} color={Palette.red} />
                     </TouchableOpacity>
                   </View>
@@ -328,20 +382,6 @@ export default function VenueTypes() {
                   placeholderTextColor={theme.textSecondary}
                   value={newVenueTypeName}
                   onChangeText={setNewVenueTypeName}
-                />
-              </View>
-
-              <View style={styles.formGroup}>
-                <Text style={[styles.formLabel, { color: theme.text }]}>Description</Text>
-                <TextInput
-                  style={[styles.formInput, styles.formTextarea, { color: theme.text, borderColor: theme.border }]}
-                  placeholder="Enter description (optional)"
-                  placeholderTextColor={theme.textSecondary}
-                  value={newVenueTypeDescription}
-                  onChangeText={setNewVenueTypeDescription}
-                  multiline
-                  numberOfLines={4}
-                  textAlignVertical="top"
                 />
               </View>
             </View>
@@ -395,20 +435,6 @@ export default function VenueTypes() {
                   onChangeText={setEditVenueTypeName}
                 />
               </View>
-
-              <View style={styles.formGroup}>
-                <Text style={[styles.formLabel, { color: theme.text }]}>Description</Text>
-                <TextInput
-                  style={[styles.formInput, styles.formTextarea, { color: theme.text, borderColor: theme.border }]}
-                  placeholder="Enter description (optional)"
-                  placeholderTextColor={theme.textSecondary}
-                  value={editVenueTypeDescription}
-                  onChangeText={setEditVenueTypeDescription}
-                  multiline
-                  numberOfLines={4}
-                  textAlignVertical="top"
-                />
-              </View>
             </View>
 
             <View style={styles.modalFooter}>
@@ -429,6 +455,19 @@ export default function VenueTypes() {
           </View>
         </View>
       </Modal>
+
+      {/* Delete Confirmation Modal */}
+      <DeleteConfirmationModal
+        isOpen={showDeleteModal}
+        onClose={handleCloseDeleteModal}
+        onConfirm={handleConfirmDelete}
+        title="Delete Venue Type"
+        message="Are you sure you want to delete this venue type? This action cannot be undone."
+        confirmText="Delete"
+        cancelText="Cancel"
+        theme={theme}
+        isLoading={isDeleting}
+      />
     </View>
   );
 }
@@ -592,7 +631,6 @@ const styles = StyleSheet.create({
   },
   actionsColumn: {
     flexDirection: "row",
-    justifyContent: "space-around",
     alignItems: "center",
   },
   actionIcon: {

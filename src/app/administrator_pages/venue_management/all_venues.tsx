@@ -1,8 +1,9 @@
 import { Ionicons } from "@expo/vector-icons";
-import { useRouter } from "expo-router";
-import { useEffect, useState } from "react";
+import { useFocusEffect, useRouter } from "expo-router";
+import { useCallback, useEffect, useState } from "react";
 import {
     ActivityIndicator,
+    Alert,
     Image,
     ScrollView,
     StyleSheet,
@@ -10,12 +11,13 @@ import {
     Text,
     TextInput,
     TouchableOpacity,
-    View,
+    View
 } from "react-native";
 import { Palette } from "../../../../assets/colors/palette";
 import AdminHeader from "../../../components/admin-header";
 import AdminSidebar from "../../../components/admin-sidebar";
 import { useTheme } from "../../../context/theme-context";
+import { fetchVenues } from "../../../services/venueService";
 
 export default function AllVenues() {
   const { isDarkMode, toggleTheme } = useTheme();
@@ -40,87 +42,54 @@ export default function AllVenues() {
 
   const theme = isDarkMode ? Palette.dark : Palette.light;
 
-  // Mock data - replace with actual API calls
-  const mockVenues = [
-    {
-      id: 1,
-      name: "Convention Hall A",
-      location: "Business District, Chicago",
-      capacity: 1200,
-      type: "Convention Center",
-      status: true,
-      thumbnail: "https://images.unsplash.com/photo-1519167758993-c5924266c810?w=200&h=200&fit=crop",
-    },
-    {
-      id: 2,
-      name: "Executive Meeting Room",
-      location: "Business Tower, Boston",
-      capacity: 50,
-      type: "Meeting Room",
-      status: false,
-      thumbnail: "https://images.unsplash.com/photo-1552664730-d307ca884978?w=200&h=200&fit=crop",
-    },
-    {
-      id: 3,
-      name: "Garden Paradise",
-      location: "Countryside, California",
-      capacity: 200,
-      type: "Outdoor Garden",
-      status: true,
-      thumbnail: "https://images.unsplash.com/photo-1519671482677-0ac3dba0ef0e?w=200&h=200&fit=crop",
-    },
-    {
-      id: 4,
-      name: "Grand Ballroom",
-      location: "Downtown City Center, New York",
-      capacity: 500,
-      type: "Banquet Hall",
-      status: true,
-      thumbnail: "https://images.unsplash.com/photo-1519671482677-0ac3dba0ef0e?w=200&h=200&fit=crop",
-    },
-  ];
-
-  const availableLocations = ["Business District", "Downtown", "Countryside", "Business Tower"];
-  const availableTypes = ["Convention Center", "Meeting Room", "Outdoor Garden", "Banquet Hall"];
-  const availableCapacities = ["0-100", "100-300", "300-500", "500+"];
-
   useEffect(() => {
-    fetchVenues();
+    loadVenues();
   }, []);
 
-  const fetchVenues = async () => {
+  useFocusEffect(
+    useCallback(() => {
+      loadVenues();
+    }, [])
+  );
+
+  const loadVenues = async () => {
     try {
       setLoading(true);
-      // TODO: Replace with actual Supabase query
-      // const { data, error } = await supabase
-      //   .from("venues")
-      //   .select("*")
-      //   .order("created_at", { ascending: false });
+      setError(null);
+      const { data, error } = await fetchVenues();
       
-      // For now, using mock data
-      setVenues(mockVenues);
+      if (error) {
+        setError(error);
+        Alert.alert("Error", error);
+      } else {
+        setVenues(data || []);
+      }
     } catch (err: any) {
       setError(err.message);
+      Alert.alert("Error", err.message);
     } finally {
       setLoading(false);
     }
   };
 
-  const filteredVenues = venues.filter((venue) => {
-    const matchesSearch = venue.name.toLowerCase().includes(searchText.toLowerCase()) ||
-      venue.location.toLowerCase().includes(searchText.toLowerCase());
-    
-    const matchesLocation = !locationFilter || venue.location.includes(locationFilter);
-    const matchesType = !typeFilter || venue.type === typeFilter;
-    const matchesCapacity = !capacityFilter || checkCapacityRange(venue.capacity, capacityFilter);
-    const matchesStatus = !statusFilter || (statusFilter === "Active" ? venue.status : !venue.status);
+  const availableLocations = ["Manila", "Cebu", "Davao", "Quezon City"];
+  const availableTypes = ["Convention Center", "Banquet Hall", "Hotel Ballroom", "Garden Venue"];
+  const availableCapacities = ["0-100", "100-300", "300-500", "500+"];
 
-    return matchesSearch && matchesLocation && matchesType && matchesCapacity && matchesStatus;
+  const filteredVenues = venues.filter((venue) => {
+    const matchesSearch = venue.venue_name?.toLowerCase().includes(searchText.toLowerCase()) ||
+      venue.city?.toLowerCase().includes(searchText.toLowerCase());
+    
+    const matchesLocation = !locationFilter || venue.city?.includes(locationFilter);
+    const matchesCapacity = !capacityFilter || checkCapacityRange(venue.max_capacity, capacityFilter);
+    const matchesStatus = !statusFilter || (statusFilter === "Active" ? venue.is_active : !venue.is_active);
+
+    return matchesSearch && matchesLocation && matchesCapacity && matchesStatus;
   }).sort((a, b) => {
-    if (sortBy === "Name (A-Z)") return a.name.localeCompare(b.name);
-    if (sortBy === "Name (Z-A)") return b.name.localeCompare(a.name);
-    if (sortBy === "Capacity (Low-High)") return a.capacity - b.capacity;
-    if (sortBy === "Capacity (High-Low)") return b.capacity - a.capacity;
+    if (sortBy === "Name (A-Z)") return (a.venue_name || "").localeCompare(b.venue_name || "");
+    if (sortBy === "Name (Z-A)") return (b.venue_name || "").localeCompare(a.venue_name || "");
+    if (sortBy === "Capacity (Low-High)") return (a.max_capacity || 0) - (b.max_capacity || 0);
+    if (sortBy === "Capacity (High-Low)") return (b.max_capacity || 0) - (a.max_capacity || 0);
     return 0;
   });
 
@@ -346,57 +315,54 @@ export default function AllVenues() {
             </View>
 
             {/* Table Rows */}
-            {filteredVenues.length === 0 ? (
-              <View style={[styles.emptyContainer, { backgroundColor: theme.bg }]}>
-                <Ionicons name="search" size={48} color={theme.textSecondary} />
-                <Text style={[styles.emptyText, { color: theme.text }]}>No venues found</Text>
-              </View>
-            ) : (
-              filteredVenues.map((venue) => (
-                <View key={venue.id} style={[styles.tableRow, { borderColor: theme.border }]}>
+            {filteredVenues.map((venue) => (
+                <View key={venue.venue_id} style={[styles.tableRow, { borderColor: theme.border }]}>
                   {/* Thumbnail */}
                   <View style={{ flex: 0.8 }}>
-                    {venue.thumbnail ? (
-                      <Image source={{ uri: venue.thumbnail }} style={[styles.thumbnail, { borderRadius: 8 }]} />
-                    ) : (
-                      <View style={[styles.thumbnail, { backgroundColor: Palette.primary, justifyContent: "center", alignItems: "center" }]}>
-                        <Text style={styles.thumbnailText}>{getInitials(venue.name)}</Text>
-                      </View>
-                    )}
+                    <View style={[styles.thumbnail, { backgroundColor: Palette.primary, justifyContent: "center", alignItems: "center" }]}>
+                      {venue.images && venue.images.length > 0 ? (
+                        <Image source={{ uri: venue.images[0]?.image_path }} style={{ width: "100%", height: "100%", borderRadius: 4 }} />
+                      ) : (
+                        <>
+                          <Ionicons name="image" size={20} color={Palette.light.text} style={{ marginBottom: 4 }} />
+                          <Text style={styles.thumbnailText}>{getInitials(venue.venue_name || "")}</Text>
+                        </>
+                      )}
+                    </View>
                   </View>
 
                   {/* Venue Name */}
-                  <Text style={[styles.cellText, { color: theme.text, flex: 1.5 }]}>{venue.name}</Text>
+                  <Text style={[styles.cellText, { color: theme.text, flex: 1.5 }]}>{venue.venue_name}</Text>
 
                   {/* Location */}
-                  <Text style={[styles.cellText, { color: theme.text, flex: 1.2 }]}>{venue.location}</Text>
+                  <Text style={[styles.cellText, { color: theme.text, flex: 1.2 }]}>{venue.city}, {venue.province}</Text>
 
                   {/* Capacity */}
-                  <Text style={[styles.cellText, { color: theme.text, flex: 0.8 }]}>{venue.capacity}</Text>
+                  <Text style={[styles.cellText, { color: theme.text, flex: 0.8 }]}>{venue.max_capacity}</Text>
 
                   {/* Venue Type */}
                   <View style={{ flex: 1 }}>
                     <View style={[styles.typeBadge, { backgroundColor: Palette.primary + "20" }]}>
-                      <Text style={[styles.typeBadgeText, { color: Palette.primary }]}>{venue.type}</Text>
+                      <Text style={[styles.typeBadgeText, { color: Palette.primary }]}>{venue.country}</Text>
                     </View>
                   </View>
 
                   {/* Status Toggle */}
                   <View style={{ flex: 0.8, justifyContent: "center", alignItems: "center" }}>
-                    <Switch value={venue.status} disabled trackColor={{ false: theme.textSecondary, true: Palette.primary }} />
+                    <Switch value={venue.is_active} disabled trackColor={{ false: theme.textSecondary, true: Palette.primary }} />
                   </View>
 
                   {/* Actions */}
                   <View style={[styles.actionsColumn, { flex: 0.8 }]}>
                     <TouchableOpacity 
                       style={styles.actionIcon}
-                      onPress={() => router.push(`./venue_details?venueId=${venue.id}`)}
+                      onPress={() => router.push(`./venue_details?venueId=${venue.venue_id}`)}
                     >
                       <Ionicons name="eye" size={18} color={Palette.blue} />
                     </TouchableOpacity>
                     <TouchableOpacity 
                       style={styles.actionIcon}
-                      onPress={() => router.push(`./edit_venue?venueId=${venue.id}`)}
+                      onPress={() => router.push(`./edit_venue?venueId=${venue.venue_id}`)}
                     >
                       <Ionicons name="pencil" size={18} color={Palette.blue} />
                     </TouchableOpacity>
@@ -405,8 +371,7 @@ export default function AllVenues() {
                     </TouchableOpacity>
                   </View>
                 </View>
-              ))
-            )}
+              ))}
           </View>
         </ScrollView>
       </View>

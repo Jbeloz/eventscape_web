@@ -1,21 +1,24 @@
 import { Ionicons } from "@expo/vector-icons";
 import { useEffect, useState } from "react";
 import {
-  ActivityIndicator,
-  Alert,
-  Modal,
-  ScrollView,
-  StyleSheet,
-  Text,
-  TextInput,
-  TouchableOpacity,
-  View,
+    ActivityIndicator,
+    Alert,
+    Modal,
+    ScrollView,
+    StyleSheet,
+    Text,
+    TextInput,
+    TouchableOpacity,
+    View,
 } from "react-native";
 import { Palette } from "../../../../assets/colors/palette";
 import AdminHeader from "../../../components/admin-header";
 import AdminSidebar from "../../../components/admin-sidebar";
+import DeleteConfirmationModal from "../../../components/delete_confirmation_modal";
+import ValidationError from "../../../components/validation-error";
 import { useTheme } from "../../../context/theme-context";
 import { supabase } from "../../../services/supabase";
+import { validateRequired, VALIDATION_MESSAGES, ValidationError as ValidationErrorType } from "../../../utils/validation";
 
 export default function DecorationManagement() {
   const { isDarkMode, toggleTheme } = useTheme();
@@ -33,6 +36,13 @@ export default function DecorationManagement() {
   const [decorationStyles, setDecorationStyles] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [addError, setAddError] = useState<ValidationErrorType>({ field: "", message: "", isValid: true });
+  const [editError, setEditError] = useState<ValidationErrorType>({ field: "", message: "", isValid: true });
+
+  // Delete Modal State
+  const [showDeleteModal, setShowDeleteModal] = useState(false);
+  const [deleteStyleId, setDeleteStyleId] = useState<number | null>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
 
   const theme = isDarkMode ? Palette.dark : Palette.light;
 
@@ -102,8 +112,15 @@ export default function DecorationManagement() {
   };
 
   const handleAddStyle = async () => {
-    if (newStyleName.trim()) {
-      try {
+    const validation: ValidationErrorType = validateRequired(newStyleName) 
+      ? { field: "styleName", message: "", isValid: true }
+      : { field: "styleName", message: VALIDATION_MESSAGES.required("Style name"), isValid: false };
+    setAddError(validation);
+    
+    if (!validation.isValid) {
+      return;
+    }
+    try {
         const { error: err } = await supabase
           .from("decoration_styles")
           .insert([{ style_name: newStyleName }]);
@@ -117,7 +134,6 @@ export default function DecorationManagement() {
       } catch (err: any) {
         Alert.alert("Error", "Failed to add decoration style: " + err.message);
       }
-    }
   };
 
   const handleCancelModal = () => {
@@ -132,7 +148,15 @@ export default function DecorationManagement() {
   };
 
   const handleSaveEditStyle = async () => {
-    if (editStyleName.trim() && editingStyle) {
+    const validation: ValidationErrorType = validateRequired(editStyleName)
+      ? { field: "styleName", message: "", isValid: true }
+      : { field: "styleName", message: VALIDATION_MESSAGES.required("Style name"), isValid: false };
+    setEditError(validation);
+    
+    if (!validation.isValid) {
+      return;
+    }
+    if (editingStyle) {
       try {
         const { error: err } = await supabase
           .from("decoration_styles")
@@ -159,32 +183,37 @@ export default function DecorationManagement() {
   };
 
   const handleDeleteStyle = (styleId: number) => {
-    Alert.alert(
-      "Delete Decoration Style",
-      "Are you sure you want to delete this decoration style?",
-      [
-        { text: "Cancel", onPress: () => {}, style: "cancel" },
-        {
-          text: "Delete",
-          onPress: async () => {
-            try {
-              const { error: err } = await supabase
-                .from("decoration_styles")
-                .delete()
-                .eq("decoration_style_id", styleId);
+    setDeleteStyleId(styleId);
+    setShowDeleteModal(true);
+  };
 
-              if (err) throw err;
+  const handleConfirmDelete = async () => {
+    if (!deleteStyleId) return;
 
-              Alert.alert("Success", "Decoration style deleted successfully");
-              await fetchDecorationStyles();
-            } catch (err: any) {
-              Alert.alert("Error", "Failed to delete decoration style: " + err.message);
-            }
-          },
-          style: "destructive",
-        },
-      ]
-    );
+    setIsDeleting(true);
+    try {
+      const { error: err } = await supabase
+        .from("decoration_styles")
+        .delete()
+        .eq("decoration_style_id", deleteStyleId);
+
+      if (err) throw err;
+
+      Alert.alert("Success", "Decoration style deleted successfully");
+      setShowDeleteModal(false);
+      setDeleteStyleId(null);
+      await fetchDecorationStyles();
+    } catch (err: any) {
+      Alert.alert("Error", "Failed to delete decoration style: " + err.message);
+      setIsDeleting(false);
+    }
+  };
+
+  const handleCloseDeleteModal = () => {
+    if (!isDeleting) {
+      setShowDeleteModal(false);
+      setDeleteStyleId(null);
+    }
   };
 
   const filteredDecorationStyles = decorationStyles
@@ -304,12 +333,18 @@ export default function DecorationManagement() {
               <View style={styles.formGroup}>
                 <Text style={[styles.formLabel, { color: theme.text }]}>Style Name *</Text>
                 <TextInput
-                  style={[styles.formInput, { color: theme.text, borderColor: theme.border }]}
+                  style={[styles.formInput, { color: theme.text, borderColor: !addError.isValid ? Palette.red : theme.border }]}
                   placeholder="Enter style name"
                   placeholderTextColor={theme.textSecondary}
                   value={newStyleName}
-                  onChangeText={setNewStyleName}
+                  onChangeText={(text) => {
+                    setNewStyleName(text);
+                    if (text.trim()) {
+                      setAddError({ field: "", message: "", isValid: true });
+                    }
+                  }}
                 />
+                <ValidationError message={addError.message} visible={!addError.isValid} />
               </View>
             </View>
 
@@ -344,12 +379,18 @@ export default function DecorationManagement() {
               <View style={styles.formGroup}>
                 <Text style={[styles.formLabel, { color: theme.text }]}>Style Name *</Text>
                 <TextInput
-                  style={[styles.formInput, { color: theme.text, borderColor: theme.border }]}
+                  style={[styles.formInput, { color: theme.text, borderColor: !editError.isValid ? Palette.red : theme.border }]}
                   placeholder="Enter style name"
                   placeholderTextColor={theme.textSecondary}
                   value={editStyleName}
-                  onChangeText={setEditStyleName}
+                  onChangeText={(text) => {
+                    setEditStyleName(text);
+                    if (text.trim()) {
+                      setEditError({ field: "", message: "", isValid: true });
+                    }
+                  }}
                 />
+                <ValidationError message={editError.message} visible={!editError.isValid} />
               </View>
             </View>
 
@@ -365,6 +406,19 @@ export default function DecorationManagement() {
           </View>
         </View>
       </Modal>
+
+      {/* Delete Confirmation Modal */}
+      <DeleteConfirmationModal
+        isOpen={showDeleteModal}
+        onClose={handleCloseDeleteModal}
+        onConfirm={handleConfirmDelete}
+        title="Delete Decoration Style"
+        message="Are you sure you want to delete this decoration style? This action cannot be undone."
+        confirmText="Delete"
+        cancelText="Cancel"
+        theme={theme}
+        isLoading={isDeleting}
+      />
     </View>
   );
 }

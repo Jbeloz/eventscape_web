@@ -14,8 +14,11 @@ import {
 import { Palette } from "../../../../assets/colors/palette";
 import AdminHeader from "../../../components/admin-header";
 import AdminSidebar from "../../../components/admin-sidebar";
+import DeleteConfirmationModal from "../../../components/delete_confirmation_modal";
+import ValidationError from "../../../components/validation-error";
 import { useTheme } from "../../../context/theme-context";
 import { supabase } from "../../../services/supabase";
+import { validateCategoryName, ValidationError as ValidationErrorType } from "../../../utils/validation";
 
 export default function CategoryManagement() {
   const { isDarkMode, toggleTheme } = useTheme();
@@ -27,9 +30,16 @@ export default function CategoryManagement() {
   const [editingCategory, setEditingCategory] = useState<any>(null);
   const [editCategoryName, setEditCategoryName] = useState("");
 
+  // Delete Modal State
+  const [showDeleteModal, setShowDeleteModal] = useState(false);
+  const [deleteCategoryId, setDeleteCategoryId] = useState<number | null>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
+
   const [categories, setCategories] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [addError, setAddError] = useState<ValidationErrorType>({ field: "", message: "", isValid: true });
+  const [editError, setEditError] = useState<ValidationErrorType>({ field: "", message: "", isValid: true });
 
   const theme = isDarkMode ? Palette.dark : Palette.light;
 
@@ -41,7 +51,7 @@ export default function CategoryManagement() {
     try {
       setLoading(true);
       const { data, error: err } = await supabase
-        .from("event_categories")
+        .from("theme_categories")
         .select("*")
         .order("created_at", { ascending: false });
       
@@ -65,10 +75,15 @@ export default function CategoryManagement() {
   };
 
   const handleAddCategory = async () => {
-    if (newCategoryName.trim()) {
-      try {
+    const validation = validateCategoryName(newCategoryName);
+    setAddError(validation);
+    
+    if (!validation.isValid) {
+      return;
+    }
+    try {
         const { data, error: err } = await supabase
-          .from("event_categories")
+          .from("theme_categories")
           .insert([
             {
               category_name: newCategoryName,
@@ -93,7 +108,6 @@ export default function CategoryManagement() {
       } catch (err: any) {
         Alert.alert("Error", "Failed to add category: " + err.message);
       }
-    }
   };
 
   const handleCancelModal = () => {
@@ -108,10 +122,16 @@ export default function CategoryManagement() {
   };
 
   const handleSaveEditCategory = async () => {
-    if (editCategoryName.trim() && editingCategory) {
+    const validation = validateCategoryName(editCategoryName);
+    setEditError(validation);
+    
+    if (!validation.isValid) {
+      return;
+    }
+    if (editingCategory) {
       try {
         const { error: err } = await supabase
-          .from("event_categories")
+          .from("theme_categories")
           .update({
             category_name: editCategoryName,
           })
@@ -147,32 +167,37 @@ export default function CategoryManagement() {
   };
 
   const handleDeleteCategory = (categoryId: number) => {
-    Alert.alert(
-      "Confirm Delete",
-      "Are you sure you want to delete this category?",
-      [
-        { text: "Cancel", onPress: () => {}, style: "cancel" },
-        {
-          text: "Delete",
-          onPress: async () => {
-            try {
-              const { error: err } = await supabase
-                .from("event_categories")
-                .delete()
-                .eq("category_id", categoryId);
-              
-              if (err) throw err;
-              
-              setCategories(categories.filter((cat) => cat.id !== categoryId));
-              Alert.alert("Success", "Category deleted successfully!");
-            } catch (err: any) {
-              Alert.alert("Error", "Failed to delete category: " + err.message);
-            }
-          },
-          style: "destructive",
-        },
-      ]
-    );
+    setDeleteCategoryId(categoryId);
+    setShowDeleteModal(true);
+  };
+
+  const handleConfirmDelete = async () => {
+    if (!deleteCategoryId) return;
+
+    setIsDeleting(true);
+    try {
+      const { error: err } = await supabase
+        .from("theme_categories")
+        .delete()
+        .eq("category_id", deleteCategoryId);
+
+      if (err) throw err;
+
+      setCategories(categories.filter((cat) => cat.id !== deleteCategoryId));
+      Alert.alert("Success", "Category deleted successfully!");
+      setShowDeleteModal(false);
+      setDeleteCategoryId(null);
+    } catch (err: any) {
+      Alert.alert("Error", "Failed to delete category: " + err.message);
+      setIsDeleting(false);
+    }
+  };
+
+  const handleCloseDeleteModal = () => {
+    if (!isDeleting) {
+      setShowDeleteModal(false);
+      setDeleteCategoryId(null);
+    }
   };
 
   const filteredCategories = categories
@@ -237,7 +262,7 @@ export default function CategoryManagement() {
               <Text style={[styles.columnHeader, { color: theme.text, flex: 2 }]}>Category Name</Text>
               <Text style={[styles.columnHeader, { color: theme.text, flex: 1.5 }]}>Created Date</Text>
               <Text style={[styles.columnHeader, { color: theme.text, flex: 1.5 }]}>Last Updated</Text>
-              <Text style={[styles.columnHeader, { color: theme.text, flex: 1 }]}>Actions</Text>
+              <Text style={[styles.columnHeader, { color: theme.text, flex: 0.8 }]}>Actions</Text>
             </View>
 
             {/* Table Rows */}
@@ -259,7 +284,7 @@ export default function CategoryManagement() {
                   <Text style={[styles.cellText, { color: theme.textSecondary, flex: 1.5 }]}>{category.lastUpdated}</Text>
 
                   {/* Actions */}
-                  <View style={[styles.actionsColumn, { flex: 1, justifyContent: "center" }]}>
+                  <View style={[styles.actionsColumn, { flex: 0.8, gap: 12 }]}>
                     <TouchableOpacity style={styles.actionIcon}>
                       <Ionicons name="eye" size={18} color={Palette.blue} />
                     </TouchableOpacity>
@@ -295,12 +320,16 @@ export default function CategoryManagement() {
               <View style={styles.formGroup}>
                 <Text style={[styles.formLabel, { color: theme.text }]}>Category Name *</Text>
                 <TextInput
-                  style={[styles.formInput, { color: theme.text, borderColor: theme.border }]}
+                  style={[styles.formInput, { color: theme.text, borderColor: !addError.isValid ? Palette.red : theme.border }]}
                   placeholder="Enter category name"
                   placeholderTextColor={theme.textSecondary}
                   value={newCategoryName}
-                  onChangeText={setNewCategoryName}
+                  onChangeText={(text) => {
+                    setNewCategoryName(text);
+                    setAddError({ field: "", message: "", isValid: true });
+                  }}
                 />
+                <ValidationError message={addError.message} visible={!addError.isValid} />
               </View>
             </View>
 
@@ -335,12 +364,16 @@ export default function CategoryManagement() {
               <View style={styles.formGroup}>
                 <Text style={[styles.formLabel, { color: theme.text }]}>Category Name *</Text>
                 <TextInput
-                  style={[styles.formInput, { color: theme.text, borderColor: theme.border }]}
+                  style={[styles.formInput, { color: theme.text, borderColor: !editError.isValid ? Palette.red : theme.border }]}
                   placeholder="Enter category name"
                   placeholderTextColor={theme.textSecondary}
                   value={editCategoryName}
-                  onChangeText={setEditCategoryName}
+                  onChangeText={(text) => {
+                    setEditCategoryName(text);
+                    setEditError({ field: "", message: "", isValid: true });
+                  }}
                 />
+                <ValidationError message={editError.message} visible={!editError.isValid} />
               </View>
             </View>
 
@@ -356,6 +389,19 @@ export default function CategoryManagement() {
           </View>
         </View>
       </Modal>
+
+      {/* Delete Confirmation Modal */}
+      <DeleteConfirmationModal
+        isOpen={showDeleteModal}
+        onClose={handleCloseDeleteModal}
+        onConfirm={handleConfirmDelete}
+        title="Delete Category"
+        message="Are you sure you want to delete this category? This action cannot be undone."
+        confirmText="Delete"
+        cancelText="Cancel"
+        theme={theme}
+        isLoading={isDeleting}
+      />
     </View>
   );
 }
@@ -474,6 +520,8 @@ const styles = StyleSheet.create({
   columnHeader: {
     fontWeight: "600",
     fontSize: 12,
+    justifyContent: "center",
+    alignItems: "center",
   },
   tableRow: {
     flexDirection: "row",
@@ -499,8 +547,9 @@ const styles = StyleSheet.create({
   },
   actionsColumn: {
     flexDirection: "row",
-    justifyContent: "space-around",
+    justifyContent: "center",
     alignItems: "center",
+    gap: 12,
   },
   actionIcon: {
     padding: 6,

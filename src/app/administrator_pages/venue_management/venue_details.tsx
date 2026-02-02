@@ -1,7 +1,9 @@
 import { Ionicons } from "@expo/vector-icons";
-import { useLocalSearchParams, useRouter } from "expo-router";
-import { useState } from "react";
+import { useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
+import { useCallback, useEffect, useState } from "react";
 import {
+    ActivityIndicator,
+    Alert,
     Image,
     ScrollView,
     StyleSheet,
@@ -14,6 +16,8 @@ import { Palette } from "../../../../assets/colors/palette";
 import AdminHeader from "../../../components/admin-header";
 import AdminSidebar from "../../../components/admin-sidebar";
 import { useTheme } from "../../../context/theme-context";
+import { supabase } from "../../../services/supabase";
+import { fetchCompleteVenueDetails, fetchVenueAdministrators } from "../../../services/venueService";
 
 export default function VenueDetails() {
   const { isDarkMode, toggleTheme } = useTheme();
@@ -22,41 +26,140 @@ export default function VenueDetails() {
   const { venueId } = useLocalSearchParams();
   const [venueStatus, setVenueStatus] = useState(true);
   const [selectedImage, setSelectedImage] = useState(0);
+  const [venueAdministrators, setVenueAdministrators] = useState<any[]>([]);
+  const [selectedVenueAdmin, setSelectedVenueAdmin] = useState<any>(null);
+  const [adminLoading, setAdminLoading] = useState(true);
+  const [venueData, setVenueData] = useState<any>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    loadVenueData();
+    loadVenueAdministrators();
+  }, [venueId]);
+
+  // Refresh admin data whenever this page comes into focus
+  useFocusEffect(
+    useCallback(() => {
+      console.log("🔄 Venue details page focused, refreshing admin data...");
+      loadVenueAdministrators();
+    }, [venueId])
+  );
+
+  const loadVenueData = async () => {
+    try {
+      setLoading(true);
+      if (!venueId) {
+        Alert.alert("Error", "Venue ID not found");
+        return;
+      }
+
+      const { data, error } = await fetchCompleteVenueDetails(parseInt(venueId as string));
+      if (error || !data) {
+        Alert.alert("Error", "Failed to load venue details");
+        console.error(error);
+        return;
+      }
+
+      console.log("📋 Venue details loaded:", data);
+      console.log("🖼️ Images:", data.images);
+      console.log("📐 Floor Plans:", data.floorPlans);
+      
+      setVenueData(data);
+      setVenueStatus(data.venue?.is_active || false);
+    } catch (err: any) {
+      console.error("Error loading venue data:", err);
+      Alert.alert("Error", err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const loadVenueAdministrators = async () => {
+    try {
+      setAdminLoading(true);
+      const { data, error } = await fetchVenueAdministrators();
+      if (error) {
+        Alert.alert("Error", "Failed to load venue administrators");
+      } else {
+        setVenueAdministrators(data || []);
+      }
+
+      // Load which admin is assigned to this venue
+      if (venueId) {
+        const numVenueId = parseInt(venueId as string);
+        const { data: assignment } = await supabase
+          .from('venue_admin_assignments')
+          .select(`
+            *,
+            venue_administrators(
+              *,
+              users(user_id, email, first_name, last_name, phone_number)
+            )
+          `)
+          .eq('venue_id', numVenueId)
+          .single();
+        
+        if (assignment?.venue_administrators) {
+          console.log('👤 Assigned venue admin:', assignment.venue_administrators);
+          setSelectedVenueAdmin(assignment.venue_administrators);
+        }
+      }
+    } catch (err: any) {
+      console.error("Error loading administrators:", err);
+      Alert.alert("Error", err.message);
+    } finally {
+      setAdminLoading(false);
+    }
+  };
 
   const theme = isDarkMode ? Palette.dark : Palette.light;
 
-  // Mock venue data - replace with API call
-  const venue = {
-    id: 1,
-    name: "Convention Hall A",
-    location: "Business District, Chicago",
-    address: "123 Convention St, Chicago, IL 60601",
-    capacity: 1200,
-    type: "Convention Center",
-    status: true,
-    email: "info@conventionhall.com",
-    phone: "+1 (312) 555-0123",
-    images: [
-      "https://images.unsplash.com/photo-1519167758993-c5924266c810?w=800&h=500&fit=crop",
-      "https://images.unsplash.com/photo-1552664730-d307ca884978?w=800&h=500&fit=crop",
-      "https://images.unsplash.com/photo-1519671482677-0ac3dba0ef0e?w=800&h=500&fit=crop",
-    ],
-    dimensions: {
-      length: "50m",
-      width: "40m",
-      floorArea: "2000 sqm",
-      ceilingHeight: "12m",
-    },
-    amenities: ["Stage", "Air Conditioning", "Parking", "Handicapped Access"],
-    allowedEventTypes: ["Conference", "Exhibition", "Corporate Event", "Networking"],
-    facilities: ["Sound System", "Projector", "Wi-Fi", "Stage", "Catering Kitchen"],
-    pricing: {
-      rateType: "Hourly",
-      baseRate: "$800",
-      peakRate: "$1,200",
-      overtimeCharges: "$300",
-    },
+  // Helper functions to extract data from the fetched records
+  const getDimension = (name: string) => {
+    const spec = venueData?.specifications?.find((s: any) => s.specification_name === name);
+    return spec?.specification_value || "N/A";
   };
+
+  const getContacts = () => {
+    const email = venueData?.contacts?.find((c: any) => c.contact_type === "Email");
+    const phone = venueData?.contacts?.find((c: any) => c.contact_type === "Phone");
+    return { email: email?.contact_value || "N/A", phone: phone?.contact_value || "N/A" };
+  };
+
+  const getBasePricing = () => {
+    const rate = venueData?.baseRates?.[0];
+    return {
+      basePrice: rate?.base_price || 0,
+      weekendPrice: rate?.weekend_price || 0,
+      holidayPrice: rate?.holiday_price || 0,
+      minHours: rate?.min_hours || 0,
+    };
+  };
+
+  if (loading) {
+    return (
+      <View style={[styles.container, { backgroundColor: theme.bg }]}>
+        <AdminHeader isDarkMode={isDarkMode} onThemeToggle={toggleTheme} onSidebarToggle={() => setSidebarOpen(!sidebarOpen)} />
+        <View style={[styles.mainContainer, { justifyContent: "center", alignItems: "center" }]}>
+          <ActivityIndicator size="large" color={Palette.primary} />
+        </View>
+      </View>
+    );
+  }
+
+  if (!venueData) {
+    return (
+      <View style={[styles.container, { backgroundColor: theme.bg }]}>
+        <AdminHeader isDarkMode={isDarkMode} onThemeToggle={toggleTheme} onSidebarToggle={() => setSidebarOpen(!sidebarOpen)} />
+        <View style={[styles.mainContainer, { justifyContent: "center", alignItems: "center" }]}>
+          <Text style={[{ color: theme.text, fontSize: 18 }]}>Venue not found</Text>
+        </View>
+      </View>
+    );
+  }
+
+  const contacts = getContacts();
+  const pricing = getBasePricing();
 
   return (
     <View style={[styles.container, { backgroundColor: theme.bg }]}>
@@ -73,7 +176,7 @@ export default function VenueDetails() {
                 <Ionicons name="chevron-back" size={24} color={theme.text} />
               </TouchableOpacity>
               <View>
-                <Text style={[styles.venueName, { color: theme.text }]}>{venue.name}</Text>
+                <Text style={[styles.venueName, { color: theme.text }]}>{venueData.venue?.venue_name}</Text>
                 <View style={styles.statusBadgeRow}>
                   <View style={[styles.statusBadge, { backgroundColor: Palette.green + "20" }]}>
                     <Text style={[styles.statusBadgeText, { color: Palette.green }]}>Active</Text>
@@ -87,7 +190,7 @@ export default function VenueDetails() {
                 <Text style={[styles.toggleLabel, { color: theme.textSecondary }]}>Active</Text>
                 <Switch value={venueStatus} onValueChange={setVenueStatus} trackColor={{ false: theme.textSecondary, true: Palette.primary }} />
               </View>
-              <TouchableOpacity style={[styles.actionButton, { backgroundColor: Palette.primary }]} onPress={() => router.push(`./edit_venue?venueId=${venue.id}`)}>
+              <TouchableOpacity style={[styles.actionButton, { backgroundColor: Palette.primary }]} onPress={() => router.push(`./edit_venue?venueId=${venueData.venue?.venue_id}`)}>
                 <Ionicons name="pencil" size={18} color={Palette.black} />
               </TouchableOpacity>
               <TouchableOpacity style={[styles.actionButton, { backgroundColor: Palette.red }]}>
@@ -100,40 +203,49 @@ export default function VenueDetails() {
           <View style={[styles.subHeaderInfo, { backgroundColor: theme.card, borderColor: theme.border }]}>
             <View style={styles.infoItem}>
               <Ionicons name="location" size={18} color={Palette.primary} />
-              <Text style={[styles.infoText, { color: theme.text }]}>{venue.address}</Text>
+              <Text style={[styles.infoText, { color: theme.text }]}>
+                {venueData.venue?.street_address}, {venueData.venue?.city}, {venueData.venue?.province}
+              </Text>
             </View>
             <View style={styles.infoItem}>
               <Ionicons name="people" size={18} color={Palette.primary} />
-              <Text style={[styles.infoText, { color: theme.text }]}>Capacity: {venue.capacity} people</Text>
+              <Text style={[styles.infoText, { color: theme.text }]}>Capacity: {venueData.venue?.max_capacity} people</Text>
             </View>
           </View>
 
           {/* Gallery Section */}
-          <View style={styles.gallerySection}>
-            <Text style={[styles.sectionTitle, { color: theme.text }]}>Gallery</Text>
-            
-            {/* Main Image */}
-            <Image source={{ uri: venue.images[selectedImage] }} style={[styles.mainImage, { borderRadius: 12 }]} />
+          {venueData?.images && venueData.images.length > 0 ? (
+            <View style={styles.gallerySection}>
+              <Text style={[styles.sectionTitle, { color: theme.text }]}>Gallery</Text>
+              
+              {/* Main Image */}
+              <Image source={{ uri: venueData.images[selectedImage]?.image_path }} style={[styles.mainImage, { borderRadius: 12 }]} />
 
-            {/* Thumbnail Row */}
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.thumbnailRow}>
-              {venue.images.map((image, index) => (
-                <TouchableOpacity
-                  key={index}
-                  style={[
-                    styles.thumbnail,
-                    selectedImage === index && { borderWidth: 3, borderColor: Palette.primary },
-                  ]}
-                  onPress={() => setSelectedImage(index)}
-                >
-                  <Image source={{ uri: image }} style={styles.thumbnailImage} />
-                </TouchableOpacity>
-              ))}
-              <TouchableOpacity style={[styles.thumbnail, { backgroundColor: theme.lightBg, justifyContent: "center", alignItems: "center" }]}>
-                <Ionicons name="add" size={28} color={Palette.primary} />
-              </TouchableOpacity>
-            </ScrollView>
-          </View>
+              {/* Thumbnail Row */}
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.thumbnailRow}>
+                {venueData.images.map((image: any, index: number) => (
+                  <TouchableOpacity
+                    key={index}
+                    style={[
+                      styles.thumbnail,
+                      selectedImage === index && { borderWidth: 3, borderColor: Palette.primary },
+                    ]}
+                    onPress={() => setSelectedImage(index)}
+                  >
+                    <Image source={{ uri: image.image_path }} style={styles.thumbnailImage} />
+                  </TouchableOpacity>
+                ))}
+              </ScrollView>
+            </View>
+          ) : (
+            <View style={[styles.gallerySection, { alignItems: "center", justifyContent: "center", paddingVertical: 24 }]}>
+              <Text style={[styles.sectionTitle, { color: theme.text, marginBottom: 8 }]}>Gallery</Text>
+              <View style={{ alignItems: "center" }}>
+                <Ionicons name="image" size={48} color={theme.textSecondary} />
+                <Text style={[styles.specificationText, { color: theme.textSecondary, textAlign: "center", marginTop: 12 }]}>No images uploaded</Text>
+              </View>
+            </View>
+          )}
 
           {/* Key Information Grid */}
           <View style={styles.gridSection}>
@@ -144,18 +256,22 @@ export default function VenueDetails() {
               <View style={styles.infoRow}>
                 <Text style={[styles.infoLabel, { color: theme.textSecondary }]}>Venue Type</Text>
                 <View style={[styles.pill, { backgroundColor: Palette.primary + "20" }]}>
-                  <Text style={[styles.pillText, { color: Palette.primary }]}>{venue.type}</Text>
+                  <Text style={[styles.pillText, { color: Palette.primary }]}>
+                    {venueData.venueTypes?.[0]?.venue_types?.type_name || "General"}
+                  </Text>
                 </View>
               </View>
 
               <View style={styles.infoRow}>
                 <Text style={[styles.infoLabel, { color: theme.textSecondary }]}>Capacity</Text>
-                <Text style={[styles.infoValue, { color: theme.text }]}>{venue.capacity} people</Text>
+                <Text style={[styles.infoValue, { color: theme.text }]}>{venueData.venue?.max_capacity} people</Text>
               </View>
 
               <View style={styles.infoRow}>
                 <Text style={[styles.infoLabel, { color: theme.textSecondary }]}>Location</Text>
-                <Text style={[styles.infoValue, { color: theme.text }]}>{venue.address}</Text>
+                <Text style={[styles.infoValue, { color: theme.text }]}>
+                  {venueData.venue?.barangay}, {venueData.venue?.city}
+                </Text>
               </View>
             </View>
 
@@ -165,14 +281,40 @@ export default function VenueDetails() {
               
               <TouchableOpacity style={styles.contactRow}>
                 <Ionicons name="mail" size={20} color={Palette.primary} />
-                <Text style={[styles.contactText, { color: Palette.blue }]}>{venue.email}</Text>
+                <Text style={[styles.contactText, { color: Palette.blue }]}>{contacts.email}</Text>
               </TouchableOpacity>
 
               <TouchableOpacity style={styles.contactRow}>
                 <Ionicons name="call" size={20} color={Palette.primary} />
-                <Text style={[styles.contactText, { color: Palette.blue }]}>{venue.phone}</Text>
+                <Text style={[styles.contactText, { color: Palette.blue }]}>{contacts.phone}</Text>
               </TouchableOpacity>
             </View>
+          </View>
+
+          {/* Venue Administrator */}
+          <View style={[styles.techSection, { backgroundColor: theme.card, borderColor: theme.border }]}>
+            <Text style={[styles.sectionTitle, { color: theme.text }]}>Venue Administrator</Text>
+            {!adminLoading && venueAdministrators.length > 0 ? (
+              <View style={styles.adminInfo}>
+                <Text style={[styles.adminLabel, { color: theme.text }]}>Assigned Administrator</Text>
+                <View style={[styles.adminCard, { backgroundColor: theme.lightBg, borderColor: theme.border }]}>
+                  {selectedVenueAdmin ? (
+                    <>
+                      <Text style={[styles.adminName, { color: theme.text }]}>
+                        {selectedVenueAdmin?.users?.first_name} {selectedVenueAdmin?.users?.last_name}
+                      </Text>
+                      <Text style={[styles.adminEmail, { color: theme.textSecondary }]}>
+                        {selectedVenueAdmin?.users?.email}
+                      </Text>
+                    </>
+                  ) : (
+                    <Text style={[styles.adminName, { color: theme.text }]}>No administrator assigned</Text>
+                  )}
+                </View>
+              </View>
+            ) : (
+              <Text style={[styles.loadingText, { color: theme.textSecondary }]}>Loading administrators...</Text>
+            )}
           </View>
 
           {/* Technical Specifications */}
@@ -184,55 +326,76 @@ export default function VenueDetails() {
             <View style={styles.dimensionsRow}>
               <View style={styles.dimensionItem}>
                 <Text style={[styles.dimensionLabel, { color: theme.textSecondary }]}>Length</Text>
-                <Text style={[styles.dimensionValue, { color: theme.text }]}>{venue.dimensions.length}</Text>
+                <Text style={[styles.dimensionValue, { color: theme.text }]}>{getDimension("Length")} m</Text>
               </View>
               <View style={styles.dimensionItem}>
                 <Text style={[styles.dimensionLabel, { color: theme.textSecondary }]}>Width</Text>
-                <Text style={[styles.dimensionValue, { color: theme.text }]}>{venue.dimensions.width}</Text>
+                <Text style={[styles.dimensionValue, { color: theme.text }]}>{getDimension("Width")} m</Text>
               </View>
               <View style={styles.dimensionItem}>
                 <Text style={[styles.dimensionLabel, { color: theme.textSecondary }]}>Floor Area</Text>
-                <Text style={[styles.dimensionValue, { color: theme.text }]}>{venue.dimensions.floorArea}</Text>
+                <Text style={[styles.dimensionValue, { color: theme.text }]}>{getDimension("Floor Area")} sqm</Text>
               </View>
               <View style={styles.dimensionItem}>
                 <Text style={[styles.dimensionLabel, { color: theme.textSecondary }]}>Ceiling Height</Text>
-                <Text style={[styles.dimensionValue, { color: theme.text }]}>{venue.dimensions.ceilingHeight}</Text>
+                <Text style={[styles.dimensionValue, { color: theme.text }]}>{getDimension("Ceiling Height")} m</Text>
               </View>
             </View>
 
-            {/* Amenities */}
-            <Text style={[styles.subsectionTitle, { color: theme.text, marginTop: 16 }]}>Amenities</Text>
-            <View style={styles.amenitiesGrid}>
-              {venue.amenities.map((amenity, index) => (
-                <View key={index} style={styles.amenityItem}>
-                  <Ionicons name="checkmark-circle" size={20} color={Palette.green} />
-                  <Text style={[styles.amenityText, { color: theme.text }]}>{amenity}</Text>
-                </View>
-              ))}
-            </View>
+            {/* Venue Specifications */}
+            <Text style={[styles.subsectionTitle, { color: theme.text, marginTop: 16 }]}>Venue Specifications</Text>
+            <Text style={[styles.specificationText, { color: theme.text }]}>
+              {getDimension("Specifications")}
+            </Text>
+
+            {/* Door Placement */}
+            {venueData.doors && venueData.doors.length > 0 && (
+              <>
+                <Text style={[styles.subsectionTitle, { color: theme.text, marginTop: 16 }]}>Door Placement</Text>
+                {venueData.doors.map((door: any, index: number) => (
+                  <View key={index} style={[styles.doorCard, { backgroundColor: theme.lightBg, borderColor: theme.border }]}>
+                    <Text style={[styles.doorTitle, { color: theme.text }]}>Door {index + 1}: {door.door_type}</Text>
+                    <View style={styles.doorDetails}>
+                      <Text style={[styles.doorDetail, { color: theme.text }]}>Width: {door.width}m</Text>
+                      <Text style={[styles.doorDetail, { color: theme.text }]}>Height: {door.height}m</Text>
+                      <Text style={[styles.doorDetail, { color: theme.text }]}>Position: {door.corner_position}</Text>
+                      <Text style={[styles.doorDetail, { color: theme.text }]}>Swing: {door.swing_direction}</Text>
+                    </View>
+                  </View>
+                ))}
+              </>
+            )}
 
             {/* Allowed Event Types */}
-            <Text style={[styles.subsectionTitle, { color: theme.text, marginTop: 16 }]}>Allowed Event Types</Text>
-            <View style={styles.tagsRow}>
-              {venue.allowedEventTypes.map((type, index) => (
-                <View key={index} style={[styles.tag, { backgroundColor: Palette.blue + "20", borderColor: Palette.blue }]}>
-                  <Text style={[styles.tagText, { color: Palette.blue }]}>{type}</Text>
+            {venueData.allowedEventTypes && venueData.allowedEventTypes.length > 0 && (
+              <>
+                <Text style={[styles.subsectionTitle, { color: theme.text, marginTop: 16 }]}>Allowed Event Types</Text>
+                <View style={styles.tagsRow}>
+                  {venueData.allowedEventTypes.map((type: any, index: number) => (
+                    <View key={index} style={[styles.tag, { backgroundColor: Palette.blue + "20", borderColor: Palette.blue }]}>
+                      <Text style={[styles.tagText, { color: Palette.blue }]}>
+                        {type.event_categories?.category_name || "Unknown"}
+                      </Text>
+                    </View>
+                  ))}
                 </View>
-              ))}
-            </View>
+              </>
+            )}
           </View>
 
           {/* Facilities & Inclusions */}
-          <View style={[styles.facilitiesSection, { backgroundColor: theme.card, borderColor: theme.border }]}>
-            <Text style={[styles.sectionTitle, { color: theme.text }]}>Facilities & Inclusions</Text>
-            <View style={styles.facilitiesGrid}>
-              {venue.facilities.map((facility, index) => (
-                <View key={index} style={[styles.facilityTag, { backgroundColor: Palette.primary + "20", borderColor: Palette.primary }]}>
-                  <Text style={[styles.facilityTagText, { color: Palette.primary }]}>{facility}</Text>
-                </View>
-              ))}
+          {venueData.facilities && venueData.facilities.length > 0 && (
+            <View style={[styles.facilitiesSection, { backgroundColor: theme.card, borderColor: theme.border }]}>
+              <Text style={[styles.sectionTitle, { color: theme.text }]}>Facilities & Inclusions</Text>
+              <View style={styles.facilitiesGrid}>
+                {venueData.facilities.map((facility: any, index: number) => (
+                  <View key={index} style={[styles.facilityTag, { backgroundColor: Palette.primary + "20", borderColor: Palette.primary }]}>
+                    <Text style={[styles.facilityTagText, { color: Palette.primary }]}>{facility.facility_name}</Text>
+                  </View>
+                ))}
+              </View>
             </View>
-          </View>
+          )}
 
           {/* Pricing & Packages */}
           <View style={[styles.pricingSection, { backgroundColor: theme.card, borderColor: theme.border }]}>
@@ -241,7 +404,7 @@ export default function VenueDetails() {
             <View style={styles.rateTypeRow}>
               <Text style={[styles.priceLabel, { color: theme.textSecondary }]}>Rate Type:</Text>
               <View style={[styles.pill, { backgroundColor: Palette.primary + "20" }]}>
-                <Text style={[styles.pillText, { color: Palette.primary }]}>{venue.pricing.rateType}</Text>
+                <Text style={[styles.pillText, { color: Palette.primary }]}>Hourly</Text>
               </View>
             </View>
 
@@ -249,19 +412,89 @@ export default function VenueDetails() {
             
             <View style={styles.priceRow}>
               <Text style={[styles.priceLabel, { color: theme.textSecondary }]}>Base Rate</Text>
-              <Text style={[styles.priceValue, { color: theme.text }]}>{venue.pricing.baseRate}</Text>
+              <Text style={[styles.priceValue, { color: theme.text }]}>₱{pricing.basePrice?.toFixed(2) || "0.00"}</Text>
             </View>
 
             <View style={styles.priceRow}>
-              <Text style={[styles.priceLabel, { color: theme.textSecondary }]}>Holiday / Peak Rate</Text>
-              <Text style={[styles.priceValue, { color: theme.text }]}>{venue.pricing.peakRate}</Text>
+              <Text style={[styles.priceLabel, { color: theme.textSecondary }]}>Weekend Rate</Text>
+              <Text style={[styles.priceValue, { color: theme.text }]}>₱{pricing.weekendPrice?.toFixed(2) || "0.00"}</Text>
             </View>
 
             <View style={styles.priceRow}>
-              <Text style={[styles.priceLabel, { color: theme.textSecondary }]}>Overtime Charges</Text>
-              <Text style={[styles.priceValue, { color: theme.text }]}>{venue.pricing.overtimeCharges}</Text>
+              <Text style={[styles.priceLabel, { color: theme.textSecondary }]}>Holiday Rate</Text>
+              <Text style={[styles.priceValue, { color: theme.text }]}>₱{pricing.holidayPrice?.toFixed(2) || "0.00"}</Text>
             </View>
+
+            {venueData.overtimeRates && venueData.overtimeRates.length > 0 && (
+              <View style={styles.priceRow}>
+                <Text style={[styles.priceLabel, { color: theme.textSecondary }]}>Overtime Rate</Text>
+                <Text style={[styles.priceValue, { color: theme.text }]}>₱{venueData.overtimeRates[0]?.price_per_hour?.toFixed(2) || "0.00"}/hr</Text>
+              </View>
+            )}
+
+            {/* Pricing Packages */}
+            {venueData.packages && venueData.packages.length > 0 && (
+              <>
+                <Text style={[styles.priceBreakdownTitle, { color: theme.text, marginTop: 20 }]}>Available Packages</Text>
+                {venueData.packages.map((pkg: any, index: number) => (
+                  <View key={index} style={[styles.packageCard, { backgroundColor: theme.lightBg, borderColor: theme.border }]}>
+                    <View style={styles.packageHeader}>
+                      <Text style={[styles.packageName, { color: theme.text }]}>{pkg.package_name}</Text>
+                      <Text style={[styles.packagePrice, { color: Palette.green }]}>₱{pkg.base_price?.toFixed(2)}</Text>
+                    </View>
+                    <Text style={[styles.packageDuration, { color: theme.textSecondary }]}>{pkg.duration_hours} hours</Text>
+                    {pkg.description && (
+                      <Text style={[styles.packageDescription, { color: theme.text }]}>{pkg.description}</Text>
+                    )}
+                    {venueData.packageInclusions?.filter((inc: any) => inc.package_id === pkg.package_id).length > 0 && (
+                      <View style={styles.inclusionsList}>
+                        <Text style={[styles.inclusionsTitle, { color: theme.text }]}>Inclusions:</Text>
+                        {venueData.packageInclusions
+                          ?.filter((inc: any) => inc.package_id === pkg.package_id)
+                          .map((inclusion: any, incIndex: number) => (
+                            <Text key={incIndex} style={[styles.inclusionItem, { color: theme.text }]}>
+                              • {inclusion.inclusion_name}
+                            </Text>
+                          ))}
+                      </View>
+                    )}
+                  </View>
+                ))}
+              </>
+            )}
           </View>
+
+          {/* Rules & Regulations */}
+          {venueData.rules && venueData.rules.length > 0 && (
+            <View style={[styles.rulesSection, { backgroundColor: theme.card, borderColor: theme.border }]}>
+              <Text style={[styles.sectionTitle, { color: theme.text }]}>Rules & Regulations</Text>
+              {venueData.rules.map((rule: any, index: number) => (
+                <Text key={index} style={[styles.ruleText, { color: theme.text }]}>
+                  {rule.rule_text}
+                </Text>
+              ))}
+            </View>
+          )}
+
+          {/* Floor Plans */}
+          {venueData?.floorPlans && venueData.floorPlans.length > 0 ? (
+            <View style={[styles.floorPlanSection, { backgroundColor: theme.card, borderColor: theme.border }]}>
+              <Text style={[styles.sectionTitle, { color: theme.text }]}>Floor Plans</Text>
+              {venueData.floorPlans.map((plan: any, index: number) => (
+                <View key={index} style={styles.floorPlanCard}>
+                  <Image source={{ uri: plan.floor_plan_file }} style={styles.floorPlanImage} />
+                  <Text style={[styles.floorPlanInfo, { color: theme.text }]}>
+                    {plan.length}m × {plan.width}m ({plan.area_sqm} sqm)
+                  </Text>
+                </View>
+              ))}
+            </View>
+          ) : (
+            <View style={[styles.floorPlanSection, { backgroundColor: theme.card, borderColor: theme.border }]}>
+              <Text style={[styles.sectionTitle, { color: theme.text }]}>Floor Plans</Text>
+              <Text style={[styles.specificationText, { color: theme.textSecondary }]}>No floor plans uploaded</Text>
+            </View>
+          )}
         </ScrollView>
       </View>
     </View>
@@ -529,5 +762,128 @@ const styles = StyleSheet.create({
   priceValue: {
     fontSize: 14,
     fontWeight: "600",
+  },
+  adminInfo: {
+    marginTop: 12,
+  },
+  adminLabel: {
+    fontSize: 14,
+    fontWeight: "500",
+    marginBottom: 8,
+  },
+  adminCard: {
+    borderWidth: 1,
+    borderRadius: 8,
+    padding: 12,
+  },
+  adminName: {
+    fontSize: 14,
+    fontWeight: "600",
+    marginBottom: 4,
+  },
+  adminEmail: {
+    fontSize: 12,
+  },
+  specificationText: {
+    fontSize: 13,
+    lineHeight: 20,
+    marginTop: 8,
+  },
+  loadingText: {
+    fontSize: 13,
+    marginTop: 8,
+  },
+  doorCard: {
+    borderWidth: 1,
+    borderRadius: 8,
+    padding: 12,
+    marginBottom: 12,
+  },
+  doorTitle: {
+    fontSize: 13,
+    fontWeight: "600",
+    marginBottom: 8,
+  },
+  doorDetails: {
+    gap: 4,
+  },
+  doorDetail: {
+    fontSize: 12,
+    lineHeight: 18,
+  },
+  packageCard: {
+    borderWidth: 1,
+    borderRadius: 8,
+    padding: 12,
+    marginBottom: 12,
+  },
+  packageHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: 4,
+  },
+  packageName: {
+    fontSize: 13,
+    fontWeight: "600",
+  },
+  packagePrice: {
+    fontSize: 14,
+    fontWeight: "bold",
+  },
+  packageDuration: {
+    fontSize: 12,
+    marginBottom: 8,
+  },
+  packageDescription: {
+    fontSize: 12,
+    lineHeight: 18,
+    marginBottom: 8,
+  },
+  inclusionsList: {
+    marginTop: 8,
+    paddingTop: 8,
+    borderTopWidth: 1,
+    borderTopColor: "rgba(0,0,0,0.1)",
+  },
+  inclusionsTitle: {
+    fontSize: 12,
+    fontWeight: "600",
+    marginBottom: 4,
+  },
+  inclusionItem: {
+    fontSize: 12,
+    lineHeight: 18,
+    marginLeft: 8,
+  },
+  rulesSection: {
+    borderWidth: 1,
+    borderRadius: 12,
+    padding: 16,
+    marginBottom: 24,
+  },
+  ruleText: {
+    fontSize: 13,
+    lineHeight: 20,
+    marginBottom: 8,
+  },
+  floorPlanSection: {
+    borderWidth: 1,
+    borderRadius: 12,
+    padding: 16,
+    marginBottom: 24,
+  },
+  floorPlanCard: {
+    marginTop: 12,
+  },
+  floorPlanImage: {
+    width: "100%",
+    height: 250,
+    borderRadius: 8,
+    marginBottom: 8,
+  },
+  floorPlanInfo: {
+    fontSize: 13,
+    fontWeight: "500",
   },
 });

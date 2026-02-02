@@ -291,12 +291,16 @@ export default function AccountManagement() {
         return;
       }
 
+      // Hash the password for storage
+      const passwordHash = hashToken(password);
+
       // Insert user into users table
       const { data: userData, error: dbError } = await supabase
         .from("users")
         .insert({
           auth_id: authData.user.id,
           email: formData.email.toLowerCase(),
+          password_hash: passwordHash,
           first_name: formData.firstName,
           last_name: formData.lastName,
           phone_number: formData.contactNumber || null,
