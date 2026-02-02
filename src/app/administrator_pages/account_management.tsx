@@ -769,7 +769,7 @@ export default function AccountManagement() {
   if (loading) {
     return (
       <View style={[styles.container, { backgroundColor: theme.bg }]}>
-        <AdminHeader isDarkMode={isDarkMode} onThemeToggle={toggleTheme} onSidebarToggle={() => setSidebarOpen(!sidebarOpen)} />
+        <AdminHeader onSidebarToggle={() => setSidebarOpen(!sidebarOpen)} />
         <View style={styles.mainContainer}>
           <AdminSidebar isDarkMode={isDarkMode} isOpen={sidebarOpen} />
           <View style={styles.loadingContainer}>
@@ -784,11 +784,7 @@ export default function AccountManagement() {
   return (
     <View style={[styles.container, { backgroundColor: theme.bg }]}>
       {/* Header */}
-      <AdminHeader
-        isDarkMode={isDarkMode}
-        onThemeToggle={toggleTheme}
-        onSidebarToggle={() => setSidebarOpen(!sidebarOpen)}
-      />
+      <AdminHeader onSidebarToggle={() => setSidebarOpen(!sidebarOpen)} />
 
       <View style={styles.mainContainer}>
         {/* Sidebar */}

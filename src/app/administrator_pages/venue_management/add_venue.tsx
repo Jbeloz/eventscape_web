@@ -1504,7 +1504,7 @@ export default function AddVenue() {
 
   return (
     <View style={[styles.container, { backgroundColor: theme.bg }]}>
-      <AdminHeader isDarkMode={isDarkMode} onThemeToggle={toggleTheme} onSidebarToggle={() => setSidebarOpen(!sidebarOpen)} />
+      <AdminHeader onSidebarToggle={() => setSidebarOpen(!sidebarOpen)} />
 
       <View style={styles.mainContainer}>
         <AdminSidebar isDarkMode={isDarkMode} isOpen={sidebarOpen} />

@@ -5,6 +5,7 @@ import {
   ActivityIndicator,
   Alert,
   Image,
+  Pressable,
   ScrollView,
   StyleSheet,
   Switch,
@@ -122,6 +123,33 @@ export default function VenueDetails() {
     }
   };
 
+  const handleStatusToggle = async (newStatus: boolean) => {
+    try {
+      setVenueStatus(newStatus);
+      
+      // Update the database
+      const { error } = await supabase
+        .from('venues')
+        .update({ is_active: newStatus })
+        .eq('venue_id', parseInt(venueId as string));
+      
+      if (error) {
+        Alert.alert("Error", "Failed to update venue status");
+        console.error("Status update error:", error);
+        // Revert the state on error
+        setVenueStatus(!newStatus);
+      } else {
+        Alert.alert("Success", `Venue is now ${newStatus ? "active" : "inactive"}`);
+        console.log(`✅ Venue status updated to ${newStatus}`);
+      }
+    } catch (err: any) {
+      console.error("Error updating status:", err);
+      Alert.alert("Error", err.message);
+      // Revert the state on error
+      setVenueStatus(!newStatus);
+    }
+  };
+
   const theme = isDarkMode ? Palette.dark : Palette.light;
 
   // Helper functions to extract data from the fetched records
@@ -168,7 +196,7 @@ export default function VenueDetails() {
   if (loading) {
     return (
       <View style={[styles.container, { backgroundColor: theme.bg }]}>
-        <AdminHeader isDarkMode={isDarkMode} onThemeToggle={toggleTheme} onSidebarToggle={() => setSidebarOpen(!sidebarOpen)} />
+        <AdminHeader onSidebarToggle={() => setSidebarOpen(!sidebarOpen)} />
         <View style={[styles.mainContainer, { justifyContent: "center", alignItems: "center" }]}>
           <ActivityIndicator size="large" color={Palette.primary} />
         </View>
@@ -179,7 +207,7 @@ export default function VenueDetails() {
   if (!venueData) {
     return (
       <View style={[styles.container, { backgroundColor: theme.bg }]}>
-        <AdminHeader isDarkMode={isDarkMode} onThemeToggle={toggleTheme} onSidebarToggle={() => setSidebarOpen(!sidebarOpen)} />
+        <AdminHeader onSidebarToggle={() => setSidebarOpen(!sidebarOpen)} />
         <View style={[styles.mainContainer, { justifyContent: "center", alignItems: "center" }]}>
           <Text style={[{ color: theme.text, fontSize: 18 }]}>Venue not found</Text>
         </View>
@@ -192,7 +220,7 @@ export default function VenueDetails() {
 
   return (
     <View style={[styles.container, { backgroundColor: theme.bg }]}>
-      <AdminHeader isDarkMode={isDarkMode} onThemeToggle={toggleTheme} onSidebarToggle={() => setSidebarOpen(!sidebarOpen)} />
+      <AdminHeader onSidebarToggle={() => setSidebarOpen(!sidebarOpen)} />
 
       <View style={styles.mainContainer}>
         <AdminSidebar isDarkMode={isDarkMode} isOpen={sidebarOpen} />
@@ -217,7 +245,9 @@ export default function VenueDetails() {
             <View style={styles.actionRow}>
               <View style={styles.statusToggle}>
                 <Text style={[styles.toggleLabel, { color: theme.textSecondary }]}>Active</Text>
-                <Switch value={venueStatus} onValueChange={setVenueStatus} trackColor={{ false: theme.textSecondary, true: Palette.primary }} />
+                <Pressable onPress={() => handleStatusToggle(!venueStatus)}>
+                  <Switch value={venueStatus} onValueChange={handleStatusToggle} trackColor={{ false: theme.textSecondary, true: Palette.primary }} />
+                </Pressable>
               </View>
               <TouchableOpacity style={[styles.actionButton, { backgroundColor: Palette.primary }]} onPress={() => router.push(`./edit_venue?venueId=${venueData.venue?.venue_id}`)}>
                 <Ionicons name="pencil" size={18} color={Palette.black} />

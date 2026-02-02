@@ -5,6 +5,7 @@ import {
   ActivityIndicator,
   Alert,
   Image,
+  Pressable,
   ScrollView,
   StyleSheet,
   Switch,
@@ -17,6 +18,7 @@ import { Palette } from "../../../../assets/colors/palette";
 import AdminHeader from "../../../components/admin-header";
 import AdminSidebar from "../../../components/admin-sidebar";
 import { useTheme } from "../../../context/theme-context";
+import { supabase } from "../../../services/supabase";
 import { fetchVenues } from "../../../services/venueService";
 
 export default function AllVenues() {
@@ -105,6 +107,30 @@ export default function AllVenues() {
     return true;
   };
 
+  const handleStatusToggle = async (venueId: number, currentStatus: boolean) => {
+    try {
+      const newStatus = !currentStatus;
+      
+      // Update the database
+      const { error } = await supabase
+        .from('venues')
+        .update({ is_active: newStatus })
+        .eq('venue_id', venueId);
+      
+      if (error) {
+        Alert.alert("Error", "Failed to update venue status");
+        console.error("Status update error:", error);
+      } else {
+        // Update the local state to reflect the change
+        setVenues(venues.map(v => v.venue_id === venueId ? { ...v, is_active: newStatus } : v));
+        console.log(`✅ Venue ${venueId} status updated to ${newStatus}`);
+      }
+    } catch (err: any) {
+      console.error("Error updating status:", err);
+      Alert.alert("Error", err.message);
+    }
+  };
+
   const getInitials = (name: string) => {
     return name.split(" ").map(word => word[0]).join("").toUpperCase();
   };
@@ -112,7 +138,7 @@ export default function AllVenues() {
   if (loading) {
     return (
       <View style={[styles.container, { backgroundColor: theme.bg }]}>
-        <AdminHeader isDarkMode={isDarkMode} onThemeToggle={toggleTheme} onSidebarToggle={() => setSidebarOpen(!sidebarOpen)} />
+        <AdminHeader onSidebarToggle={() => setSidebarOpen(!sidebarOpen)} />
         <View style={styles.mainContainer}>
           <AdminSidebar isDarkMode={isDarkMode} isOpen={sidebarOpen} />
           <View style={[styles.loadingContainer, { backgroundColor: theme.bg }]}>
@@ -126,7 +152,7 @@ export default function AllVenues() {
 
   return (
     <View style={[styles.container, { backgroundColor: theme.bg }]}>
-      <AdminHeader isDarkMode={isDarkMode} onThemeToggle={toggleTheme} onSidebarToggle={() => setSidebarOpen(!sidebarOpen)} />
+      <AdminHeader onSidebarToggle={() => setSidebarOpen(!sidebarOpen)} />
 
       <View style={styles.mainContainer}>
         <AdminSidebar isDarkMode={isDarkMode} isOpen={sidebarOpen} />
@@ -353,7 +379,9 @@ export default function AllVenues() {
 
                   {/* Status Toggle */}
                   <View style={{ flex: 0.8, justifyContent: "center", alignItems: "center" }}>
-                    <Switch value={venue.is_active} disabled trackColor={{ false: theme.textSecondary, true: Palette.primary }} />
+                    <Pressable onPress={() => handleStatusToggle(venue.venue_id, venue.is_active)}>
+                      <Switch value={venue.is_active} onValueChange={() => handleStatusToggle(venue.venue_id, venue.is_active)} trackColor={{ false: theme.textSecondary, true: Palette.primary }} />
+                    </Pressable>
                   </View>
 
                   {/* Actions */}

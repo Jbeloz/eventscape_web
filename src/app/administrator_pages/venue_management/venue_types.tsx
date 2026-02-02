@@ -1,15 +1,15 @@
 import { Ionicons } from "@expo/vector-icons";
 import { useEffect, useState } from "react";
 import {
-  ActivityIndicator,
-  Alert,
-  Modal,
-  ScrollView,
-  StyleSheet,
-  Text,
-  TextInput,
-  TouchableOpacity,
-  View
+    ActivityIndicator,
+    Alert,
+    Modal,
+    ScrollView,
+    StyleSheet,
+    Text,
+    TextInput,
+    TouchableOpacity,
+    View
 } from "react-native";
 import { Palette } from "../../../../assets/colors/palette";
 import AdminHeader from "../../../components/admin-header";
@@ -238,7 +238,7 @@ export default function VenueTypes() {
   if (loading) {
     return (
       <View style={[styles.container, { backgroundColor: theme.bg }]}>
-        <AdminHeader isDarkMode={isDarkMode} onThemeToggle={toggleTheme} onSidebarToggle={() => setSidebarOpen(!sidebarOpen)} />
+        <AdminHeader onSidebarToggle={() => setSidebarOpen(!sidebarOpen)} />
         <View style={styles.mainContainer}>
           <AdminSidebar isDarkMode={isDarkMode} isOpen={sidebarOpen} />
           <View style={[styles.loadingContainer, { backgroundColor: theme.bg }]}>
@@ -252,7 +252,7 @@ export default function VenueTypes() {
 
   return (
     <View style={[styles.container, { backgroundColor: theme.bg }]}>
-      <AdminHeader isDarkMode={isDarkMode} onThemeToggle={toggleTheme} onSidebarToggle={() => setSidebarOpen(!sidebarOpen)} />
+      <AdminHeader onSidebarToggle={() => setSidebarOpen(!sidebarOpen)} />
 
       <View style={styles.mainContainer}>
         <AdminSidebar isDarkMode={isDarkMode} isOpen={sidebarOpen} />

@@ -1121,7 +1121,7 @@ export default function EditVenueNew() {
   if (loading) {
     return (
       <View style={[styles.container, { backgroundColor: theme.bg }]}>
-        <AdminHeader isDarkMode={isDarkMode} onThemeToggle={toggleTheme} onSidebarToggle={() => setSidebarOpen(!sidebarOpen)} />
+        <AdminHeader onSidebarToggle={() => setSidebarOpen(!sidebarOpen)} />
         <View style={[styles.mainContainer, { justifyContent: 'center', alignItems: 'center' }]}>
           <ActivityIndicator size="large" color={Palette.primary} />
           <Text style={[{ color: theme.text, marginTop: 10 }]}>Loading venue data...</Text>
@@ -1133,11 +1133,7 @@ export default function EditVenueNew() {
   return (
     <View style={styles.container}>
       {/* Header */}
-      <AdminHeader
-        isDarkMode={isDarkMode}
-        onThemeToggle={toggleTheme}
-        onSidebarToggle={() => setSidebarOpen(!sidebarOpen)}
-      />
+      <AdminHeader onSidebarToggle={() => setSidebarOpen(!sidebarOpen)} />
 
       <View style={styles.mainContainer}>
         {/* Sidebar */}
